@@ -192,13 +192,40 @@ class _HomePageState extends State<HomePage> {
                         onPressed: () async {
                           final text = titleController.text.trim();
                           if (text.isNotEmpty) {
-                            final scheduled = DateTime(
-                              selectedDate.year,
-                              selectedDate.month,
-                              selectedDate.day,
-                              hasTime ? selectedTime.hour : 9,
-                              hasTime ? selectedTime.minute : 0,
-                            );
+                            final now = DateTime.now();
+                            final isSelectedToday = selectedDate.year == now.year &&
+                                selectedDate.month == now.month &&
+                                selectedDate.day == now.day;
+
+                            DateTime scheduled;
+                            if (hasTime) {
+                              scheduled = DateTime(
+                                selectedDate.year,
+                                selectedDate.month,
+                                selectedDate.day,
+                                selectedTime.hour,
+                                selectedTime.minute,
+                              );
+                              // If user picked a time in the past or right now on today,
+                              // set to 10 seconds in the future so it fires immediately
+                              if (scheduled.isBefore(now)) {
+                                scheduled = now.add(const Duration(seconds: 10));
+                              }
+                            } else {
+                              // If no time picked:
+                              // If today, default to 15 mins from now
+                              if (isSelectedToday) {
+                                scheduled = now.add(const Duration(minutes: 15));
+                              } else {
+                                scheduled = DateTime(
+                                  selectedDate.year,
+                                  selectedDate.month,
+                                  selectedDate.day,
+                                  9,
+                                  0,
+                                );
+                              }
+                            }
 
                             final id = await DatabaseService.instance.addCustomReminder(text, scheduled);
                             await NotificationService.instance.scheduleReminder(
@@ -208,6 +235,17 @@ class _HomePageState extends State<HomePage> {
                               scheduledDate: scheduled,
                             );
                             _loadGlobalData();
+
+                            if (mounted) {
+                              final formattedAlertTime = DateFormat('d MMM • hh:mm a').format(scheduled);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Reminder scheduled for $formattedAlertTime'),
+                                  backgroundColor: googleBlue,
+                                  duration: const Duration(seconds: 3),
+                                ),
+                              );
+                            }
                           }
                           Navigator.pop(context);
                         },

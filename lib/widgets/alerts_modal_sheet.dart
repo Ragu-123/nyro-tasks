@@ -81,6 +81,22 @@ class _AlertsModalSheetState extends State<AlertsModalSheet> {
     }
   }
 
+  Future<void> _sendTestNotification() async {
+    await NotificationService.instance.showInstantNotification(
+      title: 'NYRO Study Alert',
+      body: 'Notifications are working! Alarms and channels are active.',
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Test notification sent! Check your notification shade.'),
+          backgroundColor: googleBlue,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -342,7 +358,7 @@ class _AlertsModalSheetState extends State<AlertsModalSheet> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
       children: [
-        // Permission Request Banner
+        // Permission Request & Test Banner
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -350,25 +366,54 @@ class _AlertsModalSheetState extends State<AlertsModalSheet> {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: googleHairline),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.notifications_active_outlined, size: 20, color: googleBlue),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  'Enable Android notification permissions for alarm delivery',
-                  style: TextStyle(fontSize: 12, color: googleTextPrimary),
-                ),
+              const Row(
+                children: [
+                  Icon(Icons.notifications_active_outlined, size: 20, color: googleBlue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Android Notifications & Alarm Delivery',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                    ),
+                  ),
+                ],
               ),
-              OutlinedButton(
-                onPressed: _requestNotificationPermission,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: googleBlue,
-                  side: const BorderSide(color: googleBorder),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('Permission', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              const Text(
+                'Ensure notifications & exact alarms are allowed to receive scheduled study reminders.',
+                style: TextStyle(fontSize: 12, color: googleTextSecondary),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _requestNotificationPermission,
+                    icon: const Icon(Icons.security_rounded, size: 14),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: googleBlue,
+                      side: const BorderSide(color: googleBorder),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    label: const Text('Permissions', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: _sendTestNotification,
+                    icon: const Icon(Icons.send_rounded, size: 14),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: googleBlue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    label: const Text('Test Notification', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  ),
+                ],
               ),
             ],
           ),

@@ -9,8 +9,13 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
+  static const String studyChannelId = 'nyro_study_channel';
+  static const String studyChannelName = 'NYRO Study Notifications';
+  static const String dailyChannelId = 'nyro_daily_channel';
+  static const String dailyChannelName = 'Daily Study Routine';
+
   Future<void> init() async {
-    tz_data.initializeTimeZones();
+    _configureLocalTimeZone();
 
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -22,19 +27,89 @@ class NotificationService {
     await flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // Handle notification tapped logic if needed
+        // Handle notification tapped
       },
     );
 
+    // Create Notification Channels explicitly on Android 8.0+
+    final android = flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (android != null) {
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          studyChannelId,
+          studyChannelName,
+          description: 'Alerts and reminders for GATE study tasks, custom reminders, and revisits',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+        ),
+      );
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          dailyChannelId,
+          dailyChannelName,
+          description: 'Scheduled reminders for Morning, Afternoon, and Evening study blocks',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+        ),
+      );
+    }
+
     await requestPermissions();
+  }
+
+  void _configureLocalTimeZone() {
+    tz_data.initializeTimeZones();
+    try {
+      final offset = DateTime.now().timeZoneOffset;
+      // Match timezone database against current system offset
+      for (final entry in tz.timeZoneDatabase.locations.entries) {
+        final loc = entry.value;
+        final nowInLoc = tz.TZDateTime.now(loc);
+        if (nowInLoc.timeZoneOffset == offset) {
+          tz.setLocalLocation(loc);
+          return;
+        }
+      }
+    } catch (_) {}
   }
 
   Future<bool> requestPermissions() async {
     final android = flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     final granted = await android?.requestNotificationsPermission();
-    await android?.requestExactAlarmsPermission();
+    try {
+      await android?.requestExactAlarmsPermission();
+    } catch (_) {}
     return granted ?? false;
+  }
+
+  // Instant notification for testing permissions & channels
+  Future<void> showInstantNotification({
+    required String title,
+    required String body,
+  }) async {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      studyChannelId,
+      studyChannelName,
+      channelDescription: 'Alerts and reminders for GATE study tasks',
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: true,
+      enableVibration: true,
+      playSound: true,
+    );
+
+    const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+
+    await flutterLocalNotificationsPlugin.show(
+      DateTime.now().millisecondsSinceEpoch % 100000,
+      title,
+      body,
+      platformDetails,
+    );
   }
 
   Future<void> scheduleReminder({
@@ -43,35 +118,58 @@ class NotificationService {
     required String body,
     required DateTime scheduledDate,
   }) async {
-    final tz.TZDateTime tzScheduled = tz.TZDateTime.from(scheduledDate, tz.local);
+    var tzScheduled = tz.TZDateTime.from(scheduledDate, tz.local);
+    final now = tz.TZDateTime.now(tz.local);
 
-    if (tzScheduled.isBefore(tz.TZDateTime.now(tz.local))) {
-      return; // Skip past dates
+    // If the scheduled time is slightly in the past (e.g. user set it for current minute),
+    // bump it by 5 seconds so it fires immediately instead of being discarded
+    if (tzScheduled.isBefore(now)) {
+      if (now.difference(tzScheduled).inMinutes <= 5) {
+        tzScheduled = now.add(const Duration(seconds: 5));
+      } else {
+        return; // Skip past dates
+      }
     }
 
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'nyro_study_channel',
-      'NYRO Study Notifications',
-      channelDescription: 'Alerts and reminders for GATE lectures and revisions',
-      importance: Importance.high,
+      studyChannelId,
+      studyChannelName,
+      channelDescription: 'Alerts and reminders for GATE study tasks',
+      importance: Importance.max,
       priority: Priority.high,
       showWhen: true,
+      enableVibration: true,
+      playSound: true,
     );
 
     const NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
     );
 
-    await flutterLocalNotificationsPlugin.zonedSchedule(
-      id,
-      title,
-      body,
-      tzScheduled,
-      platformDetails,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-    );
+    try {
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        id,
+        title,
+        body,
+        tzScheduled,
+        platformDetails,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } catch (e) {
+      // Fallback if exact alarms permission is not granted on Android 12+
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        id,
+        title,
+        body,
+        tzScheduled,
+        platformDetails,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    }
   }
 
   Future<void> scheduleDailySessionAlerts({
@@ -80,11 +178,13 @@ class NotificationService {
     bool evening = true,
   }) async {
     const androidDetails = AndroidNotificationDetails(
-      'nyro_daily_channel',
-      'Daily Study Routine',
+      dailyChannelId,
+      dailyChannelName,
       channelDescription: 'Scheduled reminders for Morning, Afternoon, and Evening blocks',
-      importance: Importance.high,
+      importance: Importance.max,
       priority: Priority.high,
+      enableVibration: true,
+      playSound: true,
     );
     const platformDetails = NotificationDetails(android: androidDetails);
 
@@ -96,16 +196,29 @@ class NotificationService {
       if (morningTime.isBefore(now)) {
         morningTime = morningTime.add(const Duration(days: 1));
       }
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        9001,
-        'Morning Study Brief (05:00 AM)',
-        'Rise and conquer: Review your target lectures and Ebbinghaus recall items for today!',
-        morningTime,
-        platformDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
-      );
+      try {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          9001,
+          'Morning Study Brief (05:00 AM)',
+          'Rise and conquer: Review your target lectures and Ebbinghaus recall items for today!',
+          morningTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      } catch (_) {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          9001,
+          'Morning Study Brief (05:00 AM)',
+          'Rise and conquer: Review your target lectures and Ebbinghaus recall items for today!',
+          morningTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      }
     } else {
       await cancelNotification(9001);
     }
@@ -116,16 +229,29 @@ class NotificationService {
       if (afternoonTime.isBefore(now)) {
         afternoonTime = afternoonTime.add(const Duration(days: 1));
       }
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        9002,
-        'Afternoon Session (01:30 PM)',
-        'Time for Afternoon & Aptitude Block. Stay focused on your GATE target!',
-        afternoonTime,
-        platformDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
-      );
+      try {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          9002,
+          'Afternoon Session (01:30 PM)',
+          'Time for Afternoon & Aptitude Block. Stay focused on your GATE target!',
+          afternoonTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      } catch (_) {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          9002,
+          'Afternoon Session (01:30 PM)',
+          'Time for Afternoon & Aptitude Block. Stay focused on your GATE target!',
+          afternoonTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      }
     } else {
       await cancelNotification(9002);
     }
@@ -136,16 +262,29 @@ class NotificationService {
       if (eveningTime.isBefore(now)) {
         eveningTime = eveningTime.add(const Duration(days: 1));
       }
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        9003,
-        'Evening Review & Recall (07:00 PM)',
-        'Wrap up today’s lectures, log tricky quiz mistakes, and clear Day 1/4/7 recall checkpoints.',
-        eveningTime,
-        platformDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
-      );
+      try {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          9003,
+          'Evening Review & Recall (07:00 PM)',
+          'Wrap up today’s lectures, log tricky quiz mistakes, and clear Day 1/4/7 recall checkpoints.',
+          eveningTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      } catch (_) {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          9003,
+          'Evening Review & Recall (07:00 PM)',
+          'Wrap up today’s lectures, log tricky quiz mistakes, and clear Day 1/4/7 recall checkpoints.',
+          eveningTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      }
     } else {
       await cancelNotification(9003);
     }

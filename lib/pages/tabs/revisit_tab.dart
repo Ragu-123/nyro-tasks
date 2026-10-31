@@ -37,6 +37,21 @@ class _RevisitTabState extends State<RevisitTab> {
   String _mistakeStatusFilter = 'ALL';
   String _mistakeSeverityFilter = 'ALL';
   bool _isLoading = true;
+  List<String> _availableSubjects = [
+    'Engineering Mathematics',
+    'Linear Algebra',
+    'Discrete Mathematics',
+    'Digital Logic',
+    'Computer Organization',
+    'Data Structures',
+    'Algorithms',
+    'Theory of Computation',
+    'Compiler Design',
+    'Operating Systems',
+    'Databases',
+    'Computer Networks',
+    'General Aptitude',
+  ];
 
   @override
   void initState() {
@@ -64,12 +79,17 @@ class _RevisitTabState extends State<RevisitTab> {
       status: _mistakeStatusFilter,
       severity: _mistakeSeverityFilter,
     );
+    final rawSubjs = await DatabaseService.instance.getAllDistinctSubjects();
+    final cleanSubjs = rawSubjs.where((s) => s.isNotEmpty && s != 'All Subjects').toList();
 
     if (mounted) {
       setState(() {
         _dueBacklog = due;
         _matrixData = matrix;
         _mistakes = mistakes;
+        if (cleanSubjs.isNotEmpty) {
+          _availableSubjects = cleanSubjs;
+        }
         _isLoading = false;
       });
     }
@@ -108,9 +128,9 @@ class _RevisitTabState extends State<RevisitTab> {
 
   void _showAddMistakeSheet() {
     final topicController = TextEditingController();
-    final subjectController = TextEditingController(
-      text: widget.selectedSubject != 'All Subjects' ? widget.selectedSubject : 'Linear Algebra',
-    );
+    String selectedSubject = _availableSubjects.contains(widget.selectedSubject)
+        ? widget.selectedSubject
+        : (_availableSubjects.isNotEmpty ? _availableSubjects.first : 'Engineering Mathematics');
     final quizController = TextEditingController();
     final questionController = TextEditingController();
     final reasonController = TextEditingController();
@@ -220,7 +240,7 @@ class _RevisitTabState extends State<RevisitTab> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '${subjectController.text} • Severity: $severity',
+                                '$selectedSubject • Severity: $severity',
                                 style: const TextStyle(fontSize: 12, color: googleTextSecondary),
                               ),
                               const SizedBox(height: 12),
@@ -257,14 +277,55 @@ class _RevisitTabState extends State<RevisitTab> {
                               ),
                               const SizedBox(height: 12),
 
-                              // 2. Subject & Severity Selector
+                              // 2. Subject Dropdown & Severity Selector
                               Row(
                                 children: [
                                   Expanded(
-                                    child: _buildInputField(
-                                      controller: subjectController,
-                                      label: 'Subject',
-                                      hint: 'e.g., Linear Algebra',
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'SUBJECT',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: googleTextSecondary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Container(
+                                          height: 46,
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF8FAFD),
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(color: googleBorder),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                                          child: DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                              value: selectedSubject,
+                                              isExpanded: true,
+                                              icon: const Icon(Icons.arrow_drop_down_rounded, color: googleBlue),
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: googleTextPrimary,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                              items: _availableSubjects.map((s) {
+                                                return DropdownMenuItem<String>(
+                                                  value: s,
+                                                  child: Text(s, overflow: TextOverflow.ellipsis),
+                                                );
+                                              }).toList(),
+                                              onChanged: (val) {
+                                                if (val != null) {
+                                                  setSheetState(() => selectedSubject = val);
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -341,7 +402,7 @@ class _RevisitTabState extends State<RevisitTab> {
                           return;
                         }
                         await DatabaseService.instance.insertMistakeRecord(
-                          subject: subjectController.text.trim().isEmpty ? 'General' : subjectController.text.trim(),
+                          subject: selectedSubject,
                           topic: top,
                           questionText: questionController.text.trim(),
                           mistakeReason: reason,
