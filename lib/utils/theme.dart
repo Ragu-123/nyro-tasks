@@ -14,6 +14,7 @@ const googleHairline = Color(0xFFF1F3F4);
 const severityHigh = Color(0xFFB3261E);
 const severityMed = Color(0xFFE37400);
 const severityLow = Color(0xFF0B57D0);
+const googleRed = Color(0xFFB3261E);
 const googleAmber = Color(0xFFF29900);
 const googleGreen = Color(0xFF137333);
 
