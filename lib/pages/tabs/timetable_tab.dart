@@ -5,227 +5,277 @@ import 'package:tasks/widgets/google_checkbox.dart';
 
 class TimetableTab extends StatefulWidget {
   final VoidCallback onDataChanged;
+  final String selectedSubject;
 
-  const TimetableTab({Key? key, required this.onDataChanged}) : super(key: key);
+  const TimetableTab({
+    Key? key,
+    required this.onDataChanged,
+    this.selectedSubject = 'All Subjects',
+  }) : super(key: key);
 
   @override
   _TimetableTabState createState() => _TimetableTabState();
 }
 
 class _TimetableTabState extends State<TimetableTab> {
-  List<Map<String, dynamic>> _allSessions = [];
-  List<Map<String, dynamic>> _filteredSessions = [];
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _lectures = [];
   bool _isLoading = true;
-  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadCurriculum();
   }
 
-  Future<void> _loadData() async {
+  @override
+  void didUpdateWidget(covariant TimetableTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedSubject != widget.selectedSubject) {
+      _loadCurriculum();
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadCurriculum() async {
     setState(() => _isLoading = true);
-    final sessions = await DatabaseService.instance.getAllCurriculumSessions();
+    final items = await DatabaseService.instance.getCurriculumGroupedBySubject(
+      query: _searchController.text,
+      subjectFilter: widget.selectedSubject,
+    );
     if (mounted) {
       setState(() {
-        _allSessions = sessions;
-        _applyFilters();
+        _lectures = items;
         _isLoading = false;
       });
     }
   }
 
-  void _applyFilters() {
-    List<Map<String, dynamic>> result = List.from(_allSessions);
-
-    if (_searchQuery.isNotEmpty) {
-      final q = _searchQuery.toLowerCase();
-      result = result.where((s) {
-        final topic = (s['topic'] as String?)?.toLowerCase() ?? '';
-        final details = (s['details'] as String?)?.toLowerCase() ?? '';
-        final date = (s['date_str'] as String?)?.toLowerCase() ?? '';
-        return topic.contains(q) || details.contains(q) || date.contains(q);
-      }).toList();
-    }
-
-    _filteredSessions = result;
-  }
-
   Future<void> _toggleLecture(Map<String, dynamic> lec, bool completed) async {
     final id = lec['id'] as int;
     final dur = (lec['duration_hours'] as num?)?.toDouble() ?? 1.0;
-    await DatabaseService.instance.toggleLectureStatus(id, completed, dur, DateTime.now());
-    await _loadData();
+    final dateStr = lec['date_str'] ?? '';
+    DateTime date = DateTime.now();
+    try {
+      // Try parsing date or fallback to now
+      date = DateTime.parse(dateStr);
+    } catch (_) {}
+
+    await DatabaseService.instance.toggleLectureStatus(id, completed, dur, date);
+    await _loadCurriculum();
     widget.onDataChanged();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: googleBlue));
+    return Container(
+      color: Colors.white,
+      child: Column(
+        children: [
+          // Google Search Header (Flat on canvas)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Container(
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F3F4),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Row(
+                children: [
+                  const SizedBox(width: 16),
+                  const Icon(Icons.search, color: googleTextSecondary, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (_) => _loadCurriculum(),
+                      decoration: const InputDecoration(
+                        hintText: 'Search lectures, topics, dates...',
+                        hintStyle: TextStyle(fontSize: 14, color: googleTextSecondary),
+                        border: InputBorder.none,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  if (_searchController.text.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.clear, size: 18, color: googleTextSecondary),
+                      onPressed: () {
+                        _searchController.clear();
+                        _loadCurriculum();
+                      },
+                    ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1, thickness: 1, color: googleHairline),
+
+          // Curriculum Hierarchy
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: googleBlue))
+                : _lectures.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No lectures match your search or filter.',
+                          style: TextStyle(fontSize: 14, color: googleTextSecondary),
+                        ),
+                      )
+                    : _buildGroupedCurriculum(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupedCurriculum() {
+    // Group lectures by Subject
+    final subjectGroups = <String, List<Map<String, dynamic>>>{};
+    for (var l in _lectures) {
+      final topic = l['topic'] as String? ?? 'General';
+      final subject = topic.contains('•') ? topic.split('•')[0].trim() : topic.trim();
+      subjectGroups.putIfAbsent(subject, () => []).add(l);
     }
 
-    // Group filtered sessions by date_str
-    final Map<String, List<Map<String, dynamic>>> grouped = {};
-    for (var s in _filteredSessions) {
-      final date = (s['date_str'] as String?) ?? 'No Date';
-      grouped.putIfAbsent(date, () => []).add(s);
-    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 80),
+      itemCount: subjectGroups.length,
+      itemBuilder: (context, index) {
+        final subject = subjectGroups.keys.elementAt(index);
+        final items = subjectGroups[subject]!;
+        final completed = items.where((l) => (l['status'] as String?)?.toUpperCase() == 'COMPLETED').length;
+        final total = items.length;
+        final pct = total > 0 ? (completed / total).clamp(0.0, 1.0) : 0.0;
 
-    final double totalHours = _filteredSessions.fold<double>(
-        0.0, (sum, s) => sum + ((s['duration_hours'] as num?)?.toDouble() ?? 1.0));
-
-    return Column(
-      children: [
-        // Search & Summary Bar
-        Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          color: Colors.white,
-          child: Column(
-            children: [
-              TextField(
-                onChanged: (val) {
-                  setState(() {
-                    _searchQuery = val;
-                    _applyFilters();
-                  });
-                },
-                decoration: InputDecoration(
-                  hintText: 'Search topic, lecture, or date...',
-                  hintStyle: const TextStyle(fontSize: 13, color: googleTextSecondary),
-                  prefixIcon: const Icon(Icons.search, size: 20, color: googleTextSecondary),
-                  filled: true,
-                  fillColor: const Color(0xFFF0F4F9),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
+        return Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            initiallyExpanded: index == 0,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    subject.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: googleTextPrimary,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$completed/$total (${(pct * 100).toInt()}%)',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: googleBlue),
+                ),
+              ],
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: pct,
+                  minHeight: 4,
+                  backgroundColor: const Color(0xFFF1F3F4),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    pct == 1.0 ? googleGreen : googleBlue,
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '${_filteredSessions.length} Sessions Total',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: googleTextSecondary,
-                    ),
-                  ),
-                  Text(
-                    '${totalHours.toStringAsFixed(1)} hrs',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: googleBlue,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1, color: googleBorder),
-
-        // Grouped List of Sessions
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            itemCount: grouped.keys.length,
-            itemBuilder: (context, index) {
-              final date = grouped.keys.elementAt(index);
-              final items = grouped[date]!;
+            ),
+            children: items.map((lec) {
+              final isCompleted = (lec['status'] as String?)?.toUpperCase() == 'COMPLETED';
+              final title = lec['details'] ?? lec['topic'] ?? 'Lecture';
+              final topic = lec['topic'] ?? '';
+              final dateStr = lec['date_str'] ?? '';
+              final dur = (lec['duration_hours'] as num?)?.toDouble() ?? 1.0;
+              final status = lec['status'] as String? ?? 'PENDING';
 
               return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(top: 8, bottom: 6, left: 4),
-                    child: Text(
-                      date.toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: googleTextSecondary,
-                        letterSpacing: 0.5,
-                      ),
+                    padding: const EdgeInsets.fromLTRB(16, 10, 20, 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        GoogleCheckbox(
+                          value: isCompleted,
+                          onChanged: (val) => _toggleLecture(lec, val),
+                        ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: isCompleted ? googleTextSecondary : googleTextPrimary,
+                                  decoration: isCompleted ? TextDecoration.lineThrough : null,
+                                  height: 1.25,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  if (dateStr.isNotEmpty) ...[
+                                    Text(
+                                      dateStr,
+                                      style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+                                    ),
+                                    const Text(' • ', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                                  ],
+                                  Text(
+                                    '${dur.toStringAsFixed(1)}h',
+                                    style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+                                  ),
+                                  if (status == 'BACKLOG') ...[
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFF0D4),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'BACKLOG',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          color: googleAmber,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  ...items.map((lec) {
-                    final isCompleted =
-                        (lec['status'] as String?)?.toUpperCase() == 'COMPLETED';
-                    final dur = (lec['duration_hours'] as num?)?.toDouble() ?? 1.0;
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: googleBorder),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          GoogleCheckbox(
-                            value: isCompleted,
-                            onChanged: (val) => _toggleLecture(lec, val),
-                          ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  lec['topic'] ?? '',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    decoration:
-                                        isCompleted ? TextDecoration.lineThrough : null,
-                                    color:
-                                        isCompleted ? Colors.grey : googleTextPrimary,
-                                  ),
-                                ),
-                                if ((lec['details'] as String?)?.isNotEmpty ?? false) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    lec['details'] ?? '',
-                                    style: const TextStyle(
-                                        fontSize: 12, color: googleTextSecondary),
-                                  ),
-                                ],
-                                const SizedBox(height: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF0F4F9),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    '${dur.toStringAsFixed(1)}h • ${lec['session_block'] ?? "Session"}',
-                                    style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
-                                        color: Color(0xFF444746)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 56),
+                    child: Divider(height: 1, thickness: 1, color: googleHairline),
+                  ),
                 ],
               );
-            },
+            }).toList(),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }

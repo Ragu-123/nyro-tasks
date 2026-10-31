@@ -64,6 +64,83 @@ class NotificationService {
     );
   }
 
+  Future<void> scheduleDailySessionAlerts({
+    bool morning = true,
+    bool afternoon = true,
+    bool evening = true,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'nyro_daily_channel',
+      'Daily Study Routine',
+      channelDescription: 'Scheduled reminders for Morning, Afternoon, and Evening blocks',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const platformDetails = NotificationDetails(android: androidDetails);
+
+    final now = tz.TZDateTime.now(tz.local);
+
+    // 1. Morning Block at 5:00 AM (ID: 9001)
+    if (morning) {
+      var morningTime = tz.TZDateTime(tz.local, now.year, now.month, now.day, 5, 0);
+      if (morningTime.isBefore(now)) {
+        morningTime = morningTime.add(const Duration(days: 1));
+      }
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        9001,
+        'Morning Study Brief (05:00 AM)',
+        'Rise and conquer: Review your target lectures and Ebbinghaus recall items for today!',
+        morningTime,
+        platformDetails,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    } else {
+      await cancelNotification(9001);
+    }
+
+    // 2. Afternoon Session at 1:30 PM (ID: 9002)
+    if (afternoon) {
+      var afternoonTime = tz.TZDateTime(tz.local, now.year, now.month, now.day, 13, 30);
+      if (afternoonTime.isBefore(now)) {
+        afternoonTime = afternoonTime.add(const Duration(days: 1));
+      }
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        9002,
+        'Afternoon Session (01:30 PM)',
+        'Time for Afternoon & Aptitude Block. Stay focused on your GATE target!',
+        afternoonTime,
+        platformDetails,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    } else {
+      await cancelNotification(9002);
+    }
+
+    // 3. Evening Review at 7:00 PM (ID: 9003)
+    if (evening) {
+      var eveningTime = tz.TZDateTime(tz.local, now.year, now.month, now.day, 19, 0);
+      if (eveningTime.isBefore(now)) {
+        eveningTime = eveningTime.add(const Duration(days: 1));
+      }
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        9003,
+        'Evening Review & Recall (07:00 PM)',
+        'Wrap up today’s lectures, log tricky quiz mistakes, and clear Day 1/4/7 recall checkpoints.',
+        eveningTime,
+        platformDetails,
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    } else {
+      await cancelNotification(9003);
+    }
+  }
+
   Future<void> cancelNotification(int id) async {
     await flutterLocalNotificationsPlugin.cancel(id);
   }

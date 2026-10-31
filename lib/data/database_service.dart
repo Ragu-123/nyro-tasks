@@ -65,11 +65,16 @@ class DatabaseService {
       watchedHours = (daily.first['watched_hours'] as num?)?.toDouble() ?? 0.0;
     }
 
+    final revisits = await getDueRevisitsForDate(date);
+    final quizzes = await getScheduledQuizzesForDate(date);
+
     return {
       'target_hours': targetHours,
       'watched_hours': watchedHours,
       'lecture_count': lecs.length,
       'completed_count': lecs.where((l) => (l['status'] as String?)?.toUpperCase() == 'COMPLETED').length,
+      'revisit_count': revisits.length,
+      'quiz_count': quizzes.length,
     };
   }
 
@@ -94,7 +99,7 @@ class DatabaseService {
       whereArgs: [id],
     );
 
-    // Update daily_sessions
+    // Update daily_sessions if exists
     final isoDate = DateFormat('yyyy-MM-dd').format(date);
     final daily = await db.query('daily_sessions', where: 'date_str = ?', whereArgs: [isoDate]);
     if (daily.isNotEmpty) {
@@ -123,11 +128,16 @@ class DatabaseService {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getAllSpacedRevisits() async {
+  Future<List<Map<String, dynamic>>> getAllDueBacklogRevisits({String? subject}) async {
     final db = await database;
-    return await db.rawQuery(
-      'SELECT * FROM revisit_items WHERE due_date IS NOT NULL AND status != "DONE" ORDER BY due_date ASC LIMIT 100',
-    );
+    String sql = 'SELECT * FROM revisit_items WHERE status != "DONE"';
+    List<dynamic> args = [];
+    if (subject != null && subject != 'All Subjects') {
+      sql += ' AND lower(topic) LIKE lower(?)';
+      args.add('%$subject%');
+    }
+    sql += ' ORDER BY due_date ASC LIMIT 150';
+    return await db.rawQuery(sql, args);
   }
 
   Future<void> toggleRevisitStatus(int id, bool isDone) async {
@@ -143,11 +153,127 @@ class DatabaseService {
     );
   }
 
+  // --- Retention Matrix Heatmap Data ---
+
+  Future<List<Map<String, dynamic>>> getRetentionMatrixData() async {
+    final db = await database;
+    final items = await db.rawQuery('''
+      SELECT topic, stage, status
+      FROM revisit_items
+    ''');
+
+    // Aggregate by subject and stage
+    final matrixMap = <String, Map<String, List<int>>>{};
+
+    for (var r in items) {
+      final rawTopic = r['topic'] as String? ?? '';
+      final stage = r['stage'] as String? ?? '';
+      final isDone = (r['status'] as String?)?.toUpperCase() == 'DONE';
+
+      // Clean subject from topic (e.g., "Calculus and Optimization • Lecture - 1...")
+      String subject = rawTopic.contains('•') ? rawTopic.split('•')[0].trim() : rawTopic.trim();
+      if (subject.isEmpty) subject = 'General';
+
+      // Standardize stage: Day 1, Day 4, Day 7, Day 14, Day 30
+      String normStage = 'Other';
+      if (stage.contains('Day 1') || stage.contains('24h')) normStage = 'Day 1';
+      else if (stage.contains('Day 4')) normStage = 'Day 4';
+      else if (stage.contains('Day 7')) normStage = 'Day 7';
+      else if (stage.contains('Day 14')) normStage = 'Day 14';
+      else if (stage.contains('Day 30')) normStage = 'Day 30';
+
+      matrixMap.putIfAbsent(subject, () => {
+        'Day 1': [0, 0],
+        'Day 4': [0, 0],
+        'Day 7': [0, 0],
+        'Day 14': [0, 0],
+        'Day 30': [0, 0],
+      });
+
+      if (matrixMap[subject]!.containsKey(normStage)) {
+        matrixMap[subject]![normStage]![0]++; // total
+        if (isDone) matrixMap[subject]![normStage]![1]++; // done
+      }
+    }
+
+    final result = <Map<String, dynamic>>[];
+    matrixMap.forEach((subj, stages) {
+      result.add({
+        'subject': subj,
+        'stages': stages,
+      });
+    });
+
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> getRevisitsForSubjectAndStage(String subject, String stage) async {
+    final db = await database;
+    String stageQuery = '%$stage%';
+    return await db.rawQuery(
+      'SELECT * FROM revisit_items WHERE lower(topic) LIKE lower(?) AND lower(stage) LIKE lower(?) ORDER BY id ASC',
+      ['%$subject%', stageQuery],
+    );
+  }
+
   // --- Mistake Notebook ---
 
-  Future<List<Map<String, dynamic>>> getMistakeRecords() async {
+  Future<List<Map<String, dynamic>>> getMistakeRecordsFiltered({
+    String? subject,
+    String? status,
+    String? severity,
+    String? quizTitle,
+  }) async {
     final db = await database;
-    return await db.rawQuery('SELECT * FROM mistake_records ORDER BY id DESC');
+    String sql = 'SELECT * FROM mistake_records WHERE 1=1';
+    List<dynamic> args = [];
+
+    if (subject != null && subject != 'All Subjects' && subject.isNotEmpty) {
+      sql += ' AND lower(subject) LIKE lower(?)';
+      args.add('%$subject%');
+    }
+    if (status != null && status != 'ALL' && status.isNotEmpty) {
+      sql += ' AND upper(status) = upper(?)';
+      args.add(status);
+    }
+    if (severity != null && severity != 'ALL' && severity.isNotEmpty) {
+      sql += ' AND upper(severity) = upper(?)';
+      args.add(severity);
+    }
+    if (quizTitle != null && quizTitle.isNotEmpty) {
+      sql += ' AND lower(quiz_title) LIKE lower(?)';
+      args.add('%$quizTitle%');
+    }
+
+    sql += ' ORDER BY id DESC';
+    return await db.rawQuery(sql, args);
+  }
+
+  Future<int> insertMistakeRecord({
+    required String subject,
+    required String topic,
+    required String questionText,
+    String? wrongAnswer,
+    String? correctAnswer,
+    String? mistakeReason,
+    required String keyTakeaway,
+    String? quizTitle,
+    required String severity,
+  }) async {
+    final db = await database;
+    return await db.insert('mistake_records', {
+      'subject': subject,
+      'topic': topic,
+      'question_text': questionText,
+      'wrong_answer': wrongAnswer,
+      'correct_answer': correctAnswer,
+      'mistake_reason': mistakeReason,
+      'key_takeaway': keyTakeaway,
+      'quiz_title': quizTitle ?? '',
+      'severity': severity.toUpperCase(),
+      'status': 'UNRESOLVED',
+      'created_at': DateTime.now().toIso8601String(),
+    });
   }
 
   Future<void> toggleMistakeResolved(int id, bool isResolved) async {
@@ -163,35 +289,128 @@ class DatabaseService {
     );
   }
 
-  // --- Timetable / Curriculum ---
+  // --- Timetable & Curriculum ---
 
-  Future<List<Map<String, dynamic>>> getAllCurriculumSessions() async {
+  Future<List<Map<String, dynamic>>> getCurriculumGroupedBySubject({String? query, String? subjectFilter}) async {
     final db = await database;
-    return await db.rawQuery('SELECT * FROM lectures ORDER BY id ASC');
+    String sql = 'SELECT * FROM lectures WHERE 1=1';
+    List<dynamic> args = [];
+
+    if (query != null && query.trim().isNotEmpty) {
+      sql += ' AND (lower(topic) LIKE lower(?) OR lower(details) LIKE lower(?) OR lower(date_str) LIKE lower(?))';
+      final term = '%${query.trim()}%';
+      args.addAll([term, term, term]);
+    }
+
+    if (subjectFilter != null && subjectFilter != 'All Subjects' && subjectFilter.isNotEmpty) {
+      sql += ' AND lower(topic) LIKE lower(?)';
+      args.add('%$subjectFilter%');
+    }
+
+    sql += ' ORDER BY id ASC';
+    return await db.rawQuery(sql, args);
   }
 
-  Future<List<Map<String, dynamic>>> searchCurriculum(String query) async {
+  Future<List<String>> getAllDistinctSubjects() async {
     final db = await database;
-    final term = '%$query%';
-    return await db.rawQuery(
-      'SELECT * FROM lectures WHERE topic LIKE ? OR details LIKE ? OR date_str LIKE ? ORDER BY id ASC',
-      [term, term, term],
-    );
+    final qSubjs = await db.rawQuery('SELECT DISTINCT subject FROM quiz_items WHERE subject IS NOT NULL');
+    final mSubjs = await db.rawQuery('SELECT DISTINCT subject FROM mistake_records WHERE subject IS NOT NULL');
+    
+    final set = <String>{};
+    for (var r in qSubjs) {
+      if (r['subject'] != null && r['subject'].toString().trim().isNotEmpty) {
+        set.add(r['subject'].toString().trim());
+      }
+    }
+    for (var r in mSubjs) {
+      if (r['subject'] != null && r['subject'].toString().trim().isNotEmpty) {
+        set.add(r['subject'].toString().trim());
+      }
+    }
+
+    final list = set.toList()..sort();
+    return ['All Subjects', ...list];
   }
 
   // --- Quizzes & Tests ---
 
-  Future<List<Map<String, dynamic>>> getQuizzesByType(String type) async {
+  Future<List<Map<String, dynamic>>> getScheduledQuizzesForDate(DateTime date) async {
     final db = await database;
-    return await db.query(
-      'quiz_items',
-      where: 'quiz_type = ?',
-      whereArgs: [type],
-      orderBy: 'id ASC',
+    final formattedDate = DateFormat('d MMM yyyy').format(date);
+    return await db.rawQuery(
+      'SELECT * FROM quiz_items WHERE lower(date_str) LIKE lower(?) ORDER BY id ASC',
+      ['%$formattedDate%'],
     );
   }
 
-  // --- Custom Reminders ---
+  Future<List<Map<String, dynamic>>> getQuizzesByType(String type, {String? subjectFilter}) async {
+    final db = await database;
+    String sql = 'SELECT * FROM quiz_items WHERE quiz_type = ?';
+    List<dynamic> args = [type];
+
+    if (subjectFilter != null && subjectFilter != 'All Subjects' && subjectFilter.isNotEmpty) {
+      sql += ' AND lower(subject) LIKE lower(?)';
+      args.add('%$subjectFilter%');
+    }
+
+    sql += ' ORDER BY id ASC';
+    return await db.rawQuery(sql, args);
+  }
+
+  Future<int> getMistakeCountForQuiz(String quizTitle) async {
+    final db = await database;
+    final res = await db.rawQuery(
+      'SELECT COUNT(*) as cnt FROM mistake_records WHERE lower(quiz_title) LIKE lower(?)',
+      ['%$quizTitle%'],
+    );
+    return (res.first['cnt'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<void> toggleQuizStatus(int id, bool completed) async {
+    final db = await database;
+    final status = completed ? 'COMPLETED' : 'PENDING';
+    await db.update('quiz_items', {'status': status}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // --- Badge Counts for Bottom Tabs ---
+
+  Future<Map<String, int>> getBadgeCounts() async {
+    final db = await database;
+    final dueRev = await db.rawQuery('SELECT COUNT(*) as cnt FROM revisit_items WHERE status != "DONE"');
+    final pendingQuiz = await db.rawQuery('SELECT COUNT(*) as cnt FROM quiz_items WHERE upper(status) != "COMPLETED"');
+    return {
+      'due_revisits': (dueRev.first['cnt'] as num?)?.toInt() ?? 0,
+      'pending_quizzes': (pendingQuiz.first['cnt'] as num?)?.toInt() ?? 0,
+    };
+  }
+
+  // --- Alert Settings & Custom Reminders ---
+
+  Future<Map<String, dynamic>> getAlertSettings() async {
+    final db = await database;
+    final list = await db.query('alert_settings', limit: 1);
+    if (list.isNotEmpty) return list.first;
+    return {
+      'morning_brief': 1,
+      'morning_brief_time': '05:00',
+      'revisit_alerts': 1,
+      'backlog_shield': 1,
+      'shield_time': '21:30',
+    };
+  }
+
+  Future<void> updateAlertSettings({
+    required bool morningBrief,
+    required bool revisitAlerts,
+    required bool backlogShield,
+  }) async {
+    final db = await database;
+    await db.update('alert_settings', {
+      'morning_brief': morningBrief ? 1 : 0,
+      'revisit_alerts': revisitAlerts ? 1 : 0,
+      'backlog_shield': backlogShield ? 1 : 0,
+    }, where: 'id = ?', whereArgs: [1]);
+  }
 
   Future<List<Map<String, dynamic>>> getCustomReminders() async {
     final db = await database;

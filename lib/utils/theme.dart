@@ -10,6 +10,12 @@ const googleBackground = Color(0xFFF8FAFD);
 const googleTextPrimary = Color(0xFF1F1F1F);
 const googleTextSecondary = Color(0xFF5F6368);
 const googleBorder = Color(0xFFE0E2EC);
+const googleHairline = Color(0xFFF1F3F4);
+const severityHigh = Color(0xFFB3261E);
+const severityMed = Color(0xFFE37400);
+const severityLow = Color(0xFF0B57D0);
+const googleAmber = Color(0xFFF29900);
+const googleGreen = Color(0xFF137333);
 
 final lightTheme = ThemeData(
   useMaterial3: true,
