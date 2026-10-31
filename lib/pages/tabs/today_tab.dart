@@ -2,19 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:tasks/data/database_service.dart';
 import 'package:tasks/utils/theme.dart';
+import 'package:tasks/utils/url_helper.dart';
 import 'package:tasks/widgets/google_checkbox.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class TodayTab extends StatefulWidget {
   final DateTime currentDate;
   final VoidCallback onDataChanged;
   final ScrollController scrollController;
+  final VoidCallback? onJumpToToday;
+  final VoidCallback? onOpenTimetable;
 
   const TodayTab({
     Key? key,
     required this.currentDate,
     required this.onDataChanged,
     required this.scrollController,
+    this.onJumpToToday,
+    this.onOpenTimetable,
   }) : super(key: key);
 
   @override
@@ -231,10 +235,69 @@ class _TodayTabState extends State<TodayTab> {
     final progress = target > 0 ? (watched / target).clamp(0.0, 1.0) : 0.0;
     final remaining = (target - watched).clamp(0.0, target);
 
+    final isToday = widget.currentDate.year == DateTime.now().year &&
+        widget.currentDate.month == DateTime.now().month &&
+        widget.currentDate.day == DateTime.now().day;
+
     return ListView(
       controller: widget.scrollController,
       padding: EdgeInsets.zero,
       children: [
+        // Minimal Google Tasks Date Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                DateFormat('EEEE, d MMMM').format(widget.currentDate),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: googleTextPrimary,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              Row(
+                children: [
+                  if (!isToday && widget.onJumpToToday != null)
+                    InkWell(
+                      onTap: widget.onJumpToToday,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F0FE),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.today_rounded, size: 14, color: googleBlue),
+                            SizedBox(width: 4),
+                            Text(
+                              'Today',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (widget.onOpenTimetable != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.calendar_month_outlined, size: 20, color: googleBlue),
+                      tooltip: 'Open Timetable',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: widget.onOpenTimetable,
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+
         // 1. Google Pacing Header (No Box Card — Flat on canvas)
         Container(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -587,7 +650,7 @@ class _TodayTabState extends State<TodayTab> {
             color: const Color(0xFFF8FAFD),
             child: Row(
               children: [
-                const Icon(Icons.bolt, size: 18, color: googleAmber),
+                const Icon(Icons.psychology_outlined, size: 18, color: googleBlue),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
@@ -596,13 +659,17 @@ class _TodayTabState extends State<TodayTab> {
                   ),
                 ),
                 InkWell(
-                  onTap: () async {
-                    final uri = Uri.parse('https://gateoverflow.in');
-                    if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                  },
-                  child: const Text(
-                    'GO DPPs ↗',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue),
+                  onTap: () => openExternalUrl('https://gateoverflow.in'),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'GateOverflow',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue),
+                      ),
+                      SizedBox(width: 3),
+                      Icon(Icons.open_in_new, size: 13, color: googleBlue),
+                    ],
                   ),
                 ),
               ],
@@ -792,13 +859,17 @@ class _TodayTabState extends State<TodayTab> {
                               if (actionUrl != null && actionUrl.isNotEmpty) ...[
                                 const SizedBox(height: 6),
                                 InkWell(
-                                  onTap: () async {
-                                    final uri = Uri.parse(actionUrl);
-                                    if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                                  },
-                                  child: const Text(
-                                    'Start Quiz ↗',
-                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue),
+                                  onTap: () => openExternalUrl(actionUrl),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Start Quiz',
+                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue),
+                                      ),
+                                      SizedBox(width: 3),
+                                      Icon(Icons.open_in_new, size: 12, color: googleBlue),
+                                    ],
                                   ),
                                 ),
                               ],

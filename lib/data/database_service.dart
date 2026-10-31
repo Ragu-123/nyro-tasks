@@ -17,9 +17,13 @@ class DatabaseService {
     return _db!;
   }
 
-  Future<Database> _initDatabase() async {
+  Future<String> getDbPath() async {
     final docsDir = await getApplicationDocumentsDirectory();
-    final dbPath = p.join(docsDir.path, 'nyro_local.db');
+    return p.join(docsDir.path, 'nyro_local.db');
+  }
+
+  Future<Database> _initDatabase() async {
+    final dbPath = await getDbPath();
 
     // If database does not exist, extract from asset
     if (!await File(dbPath).exists()) {
@@ -28,7 +32,27 @@ class DatabaseService {
       await File(dbPath).writeAsBytes(bytes, flush: true);
     }
 
-    return await openDatabase(dbPath);
+    final db = await openDatabase(dbPath);
+    await db.execute('CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT)');
+    return db;
+  }
+
+  // --- App Config & Hugging Face Token ---
+
+  Future<String?> getHfToken() async {
+    final db = await database;
+    final res = await db.query('app_config', where: 'key = ?', whereArgs: ['hf_token'], limit: 1);
+    if (res.isNotEmpty) return res.first['value'] as String?;
+    return null;
+  }
+
+  Future<void> setHfToken(String token) async {
+    final db = await database;
+    await db.insert(
+      'app_config',
+      {'key': 'hf_token', 'value': token.trim()},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   // --- Today's Pacing & Lectures ---
@@ -128,16 +152,73 @@ class DatabaseService {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getAllDueBacklogRevisits({String? subject}) async {
+  DateTime? _parseDateSafe(String? str) {
+    if (str == null || str.trim().isEmpty) return null;
+    final s = str.trim();
+    try {
+      return DateFormat('d MMM yyyy').parse(s);
+    } catch (_) {}
+    try {
+      return DateTime.parse(s);
+    } catch (_) {}
+    try {
+      return DateFormat('yyyy-MM-dd').parse(s);
+    } catch (_) {}
+    return null;
+  }
+
+  Future<Map<String, List<Map<String, dynamic>>>> getDueBacklogCategorized({
+    required DateTime date,
+    String? subject,
+  }) async {
     final db = await database;
-    String sql = 'SELECT * FROM revisit_items WHERE status != "DONE"';
-    List<dynamic> args = [];
-    if (subject != null && subject != 'All Subjects') {
-      sql += ' AND lower(topic) LIKE lower(?)';
-      args.add('%$subject%');
-    }
-    sql += ' ORDER BY due_date ASC LIMIT 150';
-    return await db.rawQuery(sql, args);
+    final targetDate = DateTime(date.year, date.month, date.day, 23, 59, 59);
+
+    // 1. Recalls (Revisit checkpoints)
+    final revs = await db.query('revisit_items', where: 'status != ?', whereArgs: ['DONE']);
+    final dueRevs = revs.where((r) {
+      if (subject != null && subject != 'All Subjects' && subject.isNotEmpty) {
+        final top = (r['topic'] as String? ?? '').toLowerCase();
+        if (!top.contains(subject.toLowerCase())) return false;
+      }
+      final d = _parseDateSafe(r['due_date'] as String?);
+      return d != null && !d.isAfter(targetDate);
+    }).toList();
+
+    // 2. Quizzes
+    final quizzes = await db.query('quiz_items', where: 'status != ?', whereArgs: ['COMPLETED']);
+    final dueQuizzes = quizzes.where((q) {
+      if (subject != null && subject != 'All Subjects' && subject.isNotEmpty) {
+        final sub = (q['subject'] as String? ?? '').toLowerCase();
+        final title = (q['title'] as String? ?? '').toLowerCase();
+        final sLower = subject.toLowerCase();
+        if (!sub.contains(sLower) && !title.contains(sLower)) return false;
+      }
+      final d = _parseDateSafe(q['date_str'] as String?);
+      return d != null && !d.isAfter(targetDate);
+    }).toList();
+
+    // 3. Lectures
+    final lecs = await db.query('lectures', where: 'status != ?', whereArgs: ['COMPLETED']);
+    final dueLecs = lecs.where((l) {
+      if (subject != null && subject != 'All Subjects' && subject.isNotEmpty) {
+        final top = (l['topic'] as String? ?? '').toLowerCase();
+        if (!top.contains(subject.toLowerCase())) return false;
+      }
+      final d = _parseDateSafe(l['date_str'] as String?);
+      return d != null && !d.isAfter(targetDate);
+    }).toList();
+
+    return {
+      'recalls': dueRevs,
+      'quizzes': dueQuizzes,
+      'lectures': dueLecs,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> getAllDueBacklogRevisits({String? subject, DateTime? date}) async {
+    final categorized = await getDueBacklogCategorized(date: date ?? DateTime.now(), subject: subject);
+    return categorized['recalls'] ?? [];
   }
 
   Future<void> toggleRevisitStatus(int id, bool isDone) async {
@@ -157,12 +238,8 @@ class DatabaseService {
 
   Future<List<Map<String, dynamic>>> getRetentionMatrixData() async {
     final db = await database;
-    final items = await db.rawQuery('''
-      SELECT topic, stage, status
-      FROM revisit_items
-    ''');
+    final items = await db.rawQuery('SELECT topic, stage, status FROM revisit_items');
 
-    // Aggregate by subject and stage
     final matrixMap = <String, Map<String, List<int>>>{};
 
     for (var r in items) {
@@ -170,11 +247,9 @@ class DatabaseService {
       final stage = r['stage'] as String? ?? '';
       final isDone = (r['status'] as String?)?.toUpperCase() == 'DONE';
 
-      // Clean subject from topic (e.g., "Calculus and Optimization • Lecture - 1...")
       String subject = rawTopic.contains('•') ? rawTopic.split('•')[0].trim() : rawTopic.trim();
       if (subject.isEmpty) subject = 'General';
 
-      // Standardize stage: Day 1, Day 4, Day 7, Day 14, Day 30
       String normStage = 'Other';
       if (stage.contains('Day 1') || stage.contains('24h')) normStage = 'Day 1';
       else if (stage.contains('Day 4')) normStage = 'Day 4';
@@ -289,6 +364,11 @@ class DatabaseService {
     );
   }
 
+  Future<void> deleteMistakeRecord(int id) async {
+    final db = await database;
+    await db.delete('mistake_records', where: 'id = ?', whereArgs: [id]);
+  }
+
   // --- Timetable & Curriculum ---
 
   Future<List<Map<String, dynamic>>> getCurriculumGroupedBySubject({String? query, String? subjectFilter}) async {
@@ -330,6 +410,18 @@ class DatabaseService {
 
     final list = set.toList()..sort();
     return ['All Subjects', ...list];
+  }
+
+  Future<Map<String, int>> getSubjectLectureCounts() async {
+    final db = await database;
+    final lecs = await db.rawQuery('SELECT topic FROM lectures');
+    final map = <String, int>{'All Subjects': lecs.length};
+    for (var l in lecs) {
+      final topic = l['topic'] as String? ?? 'General';
+      final subj = topic.contains('•') ? topic.split('•')[0].trim() : topic.trim();
+      map[subj] = (map[subj] ?? 0) + 1;
+    }
+    return map;
   }
 
   // --- Quizzes & Tests ---
@@ -374,13 +466,16 @@ class DatabaseService {
 
   // --- Badge Counts for Bottom Tabs ---
 
-  Future<Map<String, int>> getBadgeCounts() async {
-    final db = await database;
-    final dueRev = await db.rawQuery('SELECT COUNT(*) as cnt FROM revisit_items WHERE status != "DONE"');
-    final pendingQuiz = await db.rawQuery('SELECT COUNT(*) as cnt FROM quiz_items WHERE upper(status) != "COMPLETED"');
+  Future<Map<String, int>> getBadgeCounts([DateTime? date]) async {
+    final now = date ?? DateTime.now();
+    final categorized = await getDueBacklogCategorized(date: now);
     return {
-      'due_revisits': (dueRev.first['cnt'] as num?)?.toInt() ?? 0,
-      'pending_quizzes': (pendingQuiz.first['cnt'] as num?)?.toInt() ?? 0,
+      'due_revisits': categorized['recalls']?.length ?? 0,
+      'pending_quizzes': categorized['quizzes']?.length ?? 0,
+      'backlog_lectures': categorized['lectures']?.length ?? 0,
+      'total_due': (categorized['recalls']?.length ?? 0) +
+          (categorized['quizzes']?.length ?? 0) +
+          (categorized['lectures']?.length ?? 0),
     };
   }
 
@@ -430,5 +525,122 @@ class DatabaseService {
   Future<void> deleteCustomReminder(int id) async {
     final db = await database;
     await db.delete('custom_reminders', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // --- Database Synchronization (Cloud nyro.db & android_nyro.db) ---
+
+  Future<void> overwriteDatabase(String newDbPath) async {
+    final savedToken = await getHfToken();
+    final localPath = await getDbPath();
+    if (_db != null && _db!.isOpen) {
+      await _db!.close();
+      _db = null;
+    }
+    final newBytes = await File(newDbPath).readAsBytes();
+    await File(localPath).writeAsBytes(newBytes, flush: true);
+    _db = await openDatabase(localPath);
+    await _db!.execute('''
+      CREATE TABLE IF NOT EXISTS app_config (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
+    if (savedToken != null && savedToken.isNotEmpty) {
+      await setHfToken(savedToken);
+    }
+  }
+
+  Future<void> smartMergeDatabase(String cloudDbPath) async {
+    final cloudDb = await openDatabase(cloudDbPath, readOnly: true);
+    final localDb = await database;
+
+    try {
+      // 1. Sync lectures (preserve local status and completed_at)
+      final cloudLecs = await cloudDb.query('lectures');
+      for (var cl in cloudLecs) {
+        final id = cl['id'] as int;
+        final existing = await localDb.query('lectures', where: 'id = ?', whereArgs: [id]);
+        if (existing.isEmpty) {
+          await localDb.insert('lectures', cl);
+        } else {
+          // Update details from cloud, keep local status
+          await localDb.update(
+            'lectures',
+            {
+              'topic': cl['topic'],
+              'details': cl['details'],
+              'duration_hours': cl['duration_hours'],
+              'session_block': cl['session_block'],
+              'date_str': cl['date_str'],
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+
+      // 2. Sync quizzes (preserve local status)
+      final cloudQuizzes = await cloudDb.query('quiz_items');
+      for (var cq in cloudQuizzes) {
+        final id = cq['id'] as int;
+        final existing = await localDb.query('quiz_items', where: 'id = ?', whereArgs: [id]);
+        if (existing.isEmpty) {
+          await localDb.insert('quiz_items', cq);
+        } else {
+          await localDb.update(
+            'quiz_items',
+            {
+              'title': cq['title'],
+              'subject': cq['subject'],
+              'module_name': cq['module_name'],
+              'date_str': cq['date_str'],
+              'duration_mins': cq['duration_mins'],
+              'total_marks': cq['total_marks'],
+              'syllabus_topics': cq['syllabus_topics'],
+              'action_url': cq['action_url'],
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+
+      // 3. Sync revisits (insert missing, keep local status)
+      final cloudRevisits = await cloudDb.query('revisit_items');
+      for (var cr in cloudRevisits) {
+        final id = cr['id'] as int;
+        final existing = await localDb.query('revisit_items', where: 'id = ?', whereArgs: [id]);
+        if (existing.isEmpty) {
+          await localDb.insert('revisit_items', cr);
+        } else {
+          await localDb.update(
+            'revisit_items',
+            {
+              'topic': cr['topic'],
+              'stage': cr['stage'],
+              'due_date': cr['due_date'],
+            },
+            where: 'id = ?',
+            whereArgs: [id],
+          );
+        }
+      }
+
+      // 4. Sync timetables (if cloud has updated timetable structures)
+      try {
+        final cloudTimetables = await cloudDb.query('timetables');
+        for (var ct in cloudTimetables) {
+          final id = ct['id'] as int;
+          final existing = await localDb.query('timetables', where: 'id = ?', whereArgs: [id]);
+          if (existing.isEmpty) {
+            await localDb.insert('timetables', ct);
+          } else {
+            await localDb.update('timetables', ct, where: 'id = ?', whereArgs: [id]);
+          }
+        }
+      } catch (_) {}
+    } finally {
+      await cloudDb.close();
+    }
   }
 }

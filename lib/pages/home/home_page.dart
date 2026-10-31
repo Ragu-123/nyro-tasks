@@ -7,6 +7,9 @@ import 'package:tasks/pages/tabs/quizzes_tab.dart';
 import 'package:tasks/utils/theme.dart';
 import 'package:tasks/data/database_service.dart';
 import 'package:tasks/services/notification_service.dart';
+import 'package:tasks/widgets/alerts_modal_sheet.dart';
+import 'package:tasks/widgets/cloud_sync_modal_sheet.dart';
+import 'package:tasks/widgets/subject_filter_modal_sheet.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -28,6 +31,13 @@ class _HomePageState extends State<HomePage> {
   String _selectedSubject = 'All Subjects';
   List<String> _availableSubjects = ['All Subjects'];
   Map<String, int> _badgeCounts = {'due_revisits': 0, 'pending_quizzes': 0};
+
+  bool get _isCurrentDateToday {
+    final now = DateTime.now();
+    return _currentDate.year == now.year &&
+        _currentDate.month == now.month &&
+        _currentDate.day == now.day;
+  }
 
   @override
   void initState() {
@@ -93,6 +103,10 @@ class _HomePageState extends State<HomePage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
@@ -127,7 +141,7 @@ class _HomePageState extends State<HomePage> {
                   Row(
                     children: [
                       ActionChip(
-                        avatar: const Icon(Icons.calendar_today, size: 14, color: googleBlue),
+                        avatar: const Icon(Icons.calendar_today_rounded, size: 14, color: googleBlue),
                         label: Text(formattedDate, style: const TextStyle(fontSize: 12, color: googleBlue)),
                         backgroundColor: const Color(0xFFF0F4F9),
                         side: BorderSide.none,
@@ -145,7 +159,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(width: 8),
                       ActionChip(
-                        avatar: const Icon(Icons.access_time, size: 14, color: googleBlue),
+                        avatar: const Icon(Icons.access_time_rounded, size: 14, color: googleBlue),
                         label: Text(hasTime ? formattedTime : 'Set time', style: const TextStyle(fontSize: 12, color: googleBlue)),
                         backgroundColor: const Color(0xFFF0F4F9),
                         side: BorderSide.none,
@@ -215,209 +229,56 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- Alerts & Notifications Modal Sheet ---
+  // --- Alerts & Study Routine Sheet ---
 
-  void _showAlertsSheet() async {
-    final alertSettings = await DatabaseService.instance.getAlertSettings();
-    final reminders = await DatabaseService.instance.getCustomReminders();
-
-    bool morningBrief = (alertSettings['morning_brief'] as num?)?.toInt() == 1;
-    bool revisitAlerts = (alertSettings['revisit_alerts'] as num?)?.toInt() == 1;
-    bool backlogShield = (alertSettings['backlog_shield'] as num?)?.toInt() == 1;
-
+  void _showAlertsSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.8,
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE0E2EC),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Alerts & Study Routine',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20, color: googleTextSecondary),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 1, thickness: 1, color: googleHairline),
-                  const SizedBox(height: 12),
+      backgroundColor: Colors.transparent,
+      builder: (context) => AlertsModalSheet(
+        onDataChanged: _loadGlobalData,
+        onOpenAddReminder: _showNewTaskBottomSheet,
+      ),
+    );
+  }
 
-                  Expanded(
-                    child: ListView(
-                      children: [
-                        const Text(
-                          'DAILY STUDY NOTIFICATIONS',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
-                        ),
-                        const SizedBox(height: 8),
+  // --- Cloud Sync Bottom Sheet (Drop-up Drawer) ---
 
-                        // 5:00 AM Morning Brief
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Morning Brief (05:00 AM)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                          subtitle: const Text('Daily wake-up prompt with targets and due recall items', style: TextStyle(fontSize: 12, color: googleTextSecondary)),
-                          value: morningBrief,
-                          activeColor: googleBlue,
-                          onChanged: (val) async {
-                            setSheetState(() => morningBrief = val);
-                            await DatabaseService.instance.updateAlertSettings(
-                              morningBrief: val,
-                              revisitAlerts: revisitAlerts,
-                              backlogShield: backlogShield,
-                            );
-                            await NotificationService.instance.scheduleDailySessionAlerts(
-                              morning: val,
-                              afternoon: revisitAlerts,
-                              evening: backlogShield,
-                            );
-                          },
-                        ),
+  void _showCloudSyncSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => CloudSyncModalSheet(
+        onSyncCompleted: _loadGlobalData,
+      ),
+    );
+  }
 
-                        // 1:30 PM Afternoon Session
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Afternoon Session (01:30 PM)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                          subtitle: const Text('Afternoon & Aptitude block study reminder', style: TextStyle(fontSize: 12, color: googleTextSecondary)),
-                          value: revisitAlerts,
-                          activeColor: googleBlue,
-                          onChanged: (val) async {
-                            setSheetState(() => revisitAlerts = val);
-                            await DatabaseService.instance.updateAlertSettings(
-                              morningBrief: morningBrief,
-                              revisitAlerts: val,
-                              backlogShield: backlogShield,
-                            );
-                            await NotificationService.instance.scheduleDailySessionAlerts(
-                              morning: morningBrief,
-                              afternoon: val,
-                              evening: backlogShield,
-                            );
-                          },
-                        ),
+  // --- Subject Filter Bottom Sheet ---
 
-                        // 7:00 PM Evening Review
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Evening Review (07:00 PM)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                          subtitle: const Text('Review progress and clear Day 1/4/7 recall checkpoints', style: TextStyle(fontSize: 12, color: googleTextSecondary)),
-                          value: backlogShield,
-                          activeColor: googleBlue,
-                          onChanged: (val) async {
-                            setSheetState(() => backlogShield = val);
-                            await DatabaseService.instance.updateAlertSettings(
-                              morningBrief: morningBrief,
-                              revisitAlerts: revisitAlerts,
-                              backlogShield: val,
-                            );
-                            await NotificationService.instance.scheduleDailySessionAlerts(
-                              morning: morningBrief,
-                              afternoon: revisitAlerts,
-                              evening: val,
-                            );
-                          },
-                        ),
-
-                        const SizedBox(height: 16),
-                        const Divider(height: 1, thickness: 1, color: googleHairline),
-                        const SizedBox(height: 16),
-
-                        // Custom Google Tasks Reminders List
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'CUSTOM REMINDERS',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
-                            ),
-                            TextButton.icon(
-                              icon: const Icon(Icons.add, size: 16, color: googleBlue),
-                              label: const Text('Add', style: TextStyle(fontSize: 12, color: googleBlue)),
-                              onPressed: () {
-                                Navigator.pop(context);
-                                _showNewTaskBottomSheet();
-                              },
-                            ),
-                          ],
-                        ),
-                        if (reminders.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Center(
-                              child: Text('No custom reminders active.', style: TextStyle(fontSize: 13, color: googleTextSecondary)),
-                            ),
-                          )
-                        else
-                          ...reminders.map((r) {
-                            final id = r['id'] as int;
-                            final text = r['text'] ?? '';
-                            final remindAt = r['remind_at'] ?? '';
-                            String timeStr = remindAt;
-                            try {
-                              timeStr = DateFormat('d MMM, hh:mm a').format(DateTime.parse(remindAt));
-                            } catch (_) {}
-
-                            return ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.notifications_active_outlined, size: 20, color: googleBlue),
-                              title: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                              subtitle: Text(timeStr, style: const TextStyle(fontSize: 12, color: googleTextSecondary)),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 18, color: googleTextSecondary),
-                                onPressed: () async {
-                                  await DatabaseService.instance.deleteCustomReminder(id);
-                                  await NotificationService.instance.cancelNotification(id);
-                                  final updated = await DatabaseService.instance.getCustomReminders();
-                                  setSheetState(() {
-                                    reminders.clear();
-                                    reminders.addAll(updated);
-                                  });
-                                  _loadGlobalData();
-                                },
-                              ),
-                            );
-                          }),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+  void _showSubjectFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => SubjectFilterModalSheet(
+        subjects: _availableSubjects,
+        selectedSubject: _selectedSubject,
+        onSubjectSelected: (subj) {
+          setState(() => _selectedSubject = subj);
+        },
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final formattedDate = DateFormat('EEE, d MMM').format(_currentDate);
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        titleSpacing: 16,
+        titleSpacing: 20,
         title: Row(
           children: [
             const Text(
@@ -429,10 +290,8 @@ class _HomePageState extends State<HomePage> {
                 letterSpacing: -0.5,
               ),
             ),
-            const SizedBox(width: 8),
-
-            // Animated circular progress indicator in App Bar (Appears when scrolled down)
             if (_currentNavIndex == 0 && _showAppBarPacingRing) ...[
+              const SizedBox(width: 8),
               SizedBox(
                 width: 18,
                 height: 18,
@@ -443,91 +302,59 @@ class _HomePageState extends State<HomePage> {
                   valueColor: const AlwaysStoppedAnimation<Color>(googleBlue),
                 ),
               ),
-              const SizedBox(width: 8),
             ],
-
-            // Date Picker Chip
-            InkWell(
-              onTap: _pickDate,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0F4F9),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      formattedDate,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: googleTextPrimary,
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    const Icon(Icons.arrow_drop_down, size: 16, color: googleTextSecondary),
-                  ],
-                ),
-              ),
-            ),
           ],
         ),
         actions: [
-          // Contextual Subject Filter Dropdown (for Timetable, Revisit, Quizzes)
-          if (_currentNavIndex != 0) ...[
-            PopupMenuButton<String>(
-              initialValue: _selectedSubject,
-              tooltip: 'Filter by Subject',
-              onSelected: (val) {
-                setState(() => _selectedSubject = val);
+          // Jump to Today action (appears only when viewing past/future dates)
+          if (!_isCurrentDateToday) ...[
+            InkWell(
+              onTap: () {
+                setState(() => _currentDate = DateTime.now());
+                _loadGlobalData();
               },
+              borderRadius: BorderRadius.circular(14),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  border: Border.all(color: googleBorder),
-                  borderRadius: BorderRadius.circular(16),
+                  color: const Color(0xFFE8F0FE),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(Icons.today_rounded, size: 14, color: googleBlue),
+                    SizedBox(width: 4),
                     Text(
-                      _selectedSubject == 'All Subjects' ? 'Filter' : _selectedSubject.split(' ').first,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleBlue),
+                      'Today',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
                     ),
-                    const Icon(Icons.arrow_drop_down, size: 14, color: googleBlue),
                   ],
                 ),
               ),
-              itemBuilder: (context) {
-                return _availableSubjects.map((s) {
-                  return PopupMenuItem<String>(
-                    value: s,
-                    child: Text(s, style: TextStyle(fontSize: 13, fontWeight: s == _selectedSubject ? FontWeight.bold : FontWeight.normal)),
-                  );
-                }).toList();
-              },
             ),
             const SizedBox(width: 4),
           ],
 
-          // Jump to Today action
+          // Minimal Date Picker calendar button
           IconButton(
-            icon: const Icon(Icons.today, size: 20, color: googleBlue),
-            tooltip: 'Jump to Today',
-            onPressed: () {
-              setState(() => _currentDate = DateTime.now());
-              _loadGlobalData();
-            },
+            icon: const Icon(Icons.event_outlined, size: 21, color: googleTextPrimary),
+            tooltip: 'Select Date',
+            onPressed: _pickDate,
+          ),
+
+          // Cloud Sync button (Hugging Face sync drop-up drawer)
+          IconButton(
+            icon: const Icon(Icons.cloud_sync_outlined, size: 22, color: googleTextPrimary),
+            tooltip: 'Cloud Sync',
+            onPressed: _showCloudSyncSheet,
           ),
 
           // Google Bell Icon with Live Badge Dot for Alerts & Reminders
           Stack(
             children: [
               IconButton(
-                icon: const Icon(Icons.notifications_none, size: 22, color: googleTextPrimary),
+                icon: const Icon(Icons.notifications_none_rounded, size: 22, color: googleTextPrimary),
                 tooltip: 'Alerts & Reminders',
                 onPressed: _showAlertsSheet,
               ),
@@ -557,29 +384,38 @@ class _HomePageState extends State<HomePage> {
             currentDate: _currentDate,
             onDataChanged: _loadGlobalData,
             scrollController: _todayScrollController,
+            onJumpToToday: () {
+              setState(() => _currentDate = DateTime.now());
+              _loadGlobalData();
+            },
+            onOpenTimetable: () => setState(() => _currentNavIndex = 1),
           ),
           TimetableTab(
             onDataChanged: _loadGlobalData,
             selectedSubject: _selectedSubject,
+            onOpenFilter: _showSubjectFilterSheet,
           ),
           RevisitTab(
             onDataChanged: _loadGlobalData,
             selectedSubject: _selectedSubject,
+            onOpenFilter: _showSubjectFilterSheet,
           ),
           QuizzesTab(
             onDataChanged: _loadGlobalData,
             selectedSubject: _selectedSubject,
+            onOpenFilter: _showSubjectFilterSheet,
           ),
         ],
       ),
 
-      // Quick "+" Floating Action Button
+      // Quick "+" Floating Action Button (Google Tasks style center-docked)
       floatingActionButton: FloatingActionButton(
         elevation: 3.0,
         backgroundColor: Colors.white,
         foregroundColor: googleBlue,
         onPressed: _showNewTaskBottomSheet,
-        child: const Icon(Icons.add, size: 28),
+        tooltip: 'New Task / Reminder',
+        child: const Icon(Icons.add_rounded, size: 28),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
 
@@ -592,11 +428,11 @@ class _HomePageState extends State<HomePage> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildNavItem(0, Icons.access_time, 'Today', 0),
+            _buildNavItem(0, Icons.access_time_rounded, 'Today', 0),
             _buildNavItem(1, Icons.calendar_month_outlined, 'Timetable', 0),
             const SizedBox(width: 44), // FAB gap
-            _buildNavItem(2, Icons.replay, 'Revisit', _badgeCounts['due_revisits'] ?? 0),
-            _buildNavItem(3, Icons.check_circle_outline, 'Quizzes', _badgeCounts['pending_quizzes'] ?? 0),
+            _buildNavItem(2, Icons.replay_rounded, 'Revisit', _badgeCounts['due_revisits'] ?? 0),
+            _buildNavItem(3, Icons.check_circle_outline_rounded, 'Quizzes', _badgeCounts['pending_quizzes'] ?? 0),
           ],
         ),
       ),

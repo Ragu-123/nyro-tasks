@@ -2,17 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:tasks/data/database_service.dart';
 import 'package:tasks/utils/theme.dart';
+import 'package:tasks/utils/url_helper.dart';
 import 'package:tasks/widgets/google_checkbox.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class QuizzesTab extends StatefulWidget {
   final VoidCallback onDataChanged;
   final String selectedSubject;
+  final VoidCallback? onOpenFilter;
 
   const QuizzesTab({
     Key? key,
     required this.onDataChanged,
     this.selectedSubject = 'All Subjects',
+    this.onOpenFilter,
   }) : super(key: key);
 
   @override
@@ -75,6 +77,10 @@ class _QuizzesTabState extends State<QuizzesTab> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) {
         return Container(
           height: MediaQuery.of(context).size.height * 0.75,
@@ -84,7 +90,7 @@ class _QuizzesTabState extends State<QuizzesTab> {
             children: [
               Center(
                 child: Container(
-                  width: 36,
+                  width: 40,
                   height: 4,
                   decoration: BoxDecoration(
                     color: const Color(0xFFE0E2EC),
@@ -162,12 +168,7 @@ class _QuizzesTabState extends State<QuizzesTab> {
                                 MarkdownBody(
                                   data: takeaway,
                                   selectable: true,
-                                  onTapLink: (text, href, title) async {
-                                    if (href != null) {
-                                      final uri = Uri.parse(href);
-                                      if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                                    }
-                                  },
+                                  onTapLink: (text, href, title) => openExternalUrl(href),
                                 ),
                               ],
                             ),
@@ -192,9 +193,9 @@ class _QuizzesTabState extends State<QuizzesTab> {
       );
     }
 
-    return Container(
-      color: Colors.white,
-      child: Column(
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Column(
         children: [
           // Sub-Tab Navigation
           Container(
@@ -238,7 +239,7 @@ class _QuizzesTabState extends State<QuizzesTab> {
                                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleAmber, letterSpacing: 0.5),
                                   ),
                                   Text(
-                                    '${upcomingQuiz['duration_mins']}M • ${upcomingQuiz['total_marks']} MARKS',
+                                    '${upcomingQuiz['duration_mins']}m • ${upcomingQuiz['total_marks']} Marks',
                                     style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary),
                                   ),
                                 ],
@@ -358,9 +359,18 @@ class _QuizzesTabState extends State<QuizzesTab> {
                                                   color: const Color(0xFFFFF0D4),
                                                   borderRadius: BorderRadius.circular(12),
                                                 ),
-                                                child: Text(
-                                                  '• $trapCount Logged Traps • View Notes →',
-                                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleAmber),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Icon(Icons.error_outline, size: 12, color: googleAmber),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      '$trapCount Logged Traps',
+                                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleAmber),
+                                                    ),
+                                                    const SizedBox(width: 4),
+                                                    const Icon(Icons.arrow_forward_ios, size: 10, color: googleAmber),
+                                                  ],
                                                 ),
                                               ),
                                             ),
@@ -383,13 +393,17 @@ class _QuizzesTabState extends State<QuizzesTab> {
                                               if (url != null && url.isNotEmpty) ...[
                                                 const SizedBox(width: 8),
                                                 InkWell(
-                                                  onTap: () async {
-                                                    final uri = Uri.parse(url);
-                                                    if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                                                  },
-                                                  child: const Text(
-                                                    'Start Quiz ↗',
-                                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
+                                                  onTap: () => openExternalUrl(url),
+                                                  child: const Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        'Start Quiz',
+                                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
+                                                      ),
+                                                      SizedBox(width: 2),
+                                                      Icon(Icons.open_in_new, size: 12, color: googleBlue),
+                                                    ],
                                                   ),
                                                 ),
                                               ],
@@ -415,6 +429,23 @@ class _QuizzesTabState extends State<QuizzesTab> {
           ),
         ],
       ),
+      floatingActionButton: widget.onOpenFilter != null
+          ? FloatingActionButton.small(
+              heroTag: 'quizzes_filter_fab',
+              elevation: 2,
+              backgroundColor: widget.selectedSubject != 'All Subjects' ? googleBlue : Colors.white,
+              foregroundColor: widget.selectedSubject != 'All Subjects' ? Colors.white : googleTextPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(
+                  color: widget.selectedSubject != 'All Subjects' ? googleBlue : googleBorder,
+                ),
+              ),
+              tooltip: 'Filter by Subject',
+              onPressed: widget.onOpenFilter,
+              child: const Icon(Icons.tune_rounded, size: 20),
+            )
+          : null,
     );
   }
 

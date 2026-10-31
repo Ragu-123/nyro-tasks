@@ -3,17 +3,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:tasks/data/database_service.dart';
 import 'package:tasks/utils/theme.dart';
+import 'package:tasks/utils/url_helper.dart';
 import 'package:tasks/widgets/google_checkbox.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class RevisitTab extends StatefulWidget {
   final VoidCallback onDataChanged;
   final String selectedSubject;
+  final VoidCallback? onOpenFilter;
 
   const RevisitTab({
     Key? key,
     required this.onDataChanged,
     this.selectedSubject = 'All Subjects',
+    this.onOpenFilter,
   }) : super(key: key);
 
   @override
@@ -21,9 +23,14 @@ class RevisitTab extends StatefulWidget {
 }
 
 class _RevisitTabState extends State<RevisitTab> {
-  int _activeSubIndex = 0; // 0: Due / Backlog, 1: Retention Matrix, 2: Mistake Notebook
+  int _activeSubIndex = 0; // 0: Due & Backlog, 1: Retention Matrix, 2: Mistake Notebook
+  int _activeDueCategoryIndex = 0; // 0: Recalls, 1: Quizzes, 2: Lectures
 
-  List<Map<String, dynamic>> _dueBacklog = [];
+  Map<String, List<Map<String, dynamic>>> _dueBacklog = {
+    'recalls': [],
+    'quizzes': [],
+    'lectures': [],
+  };
   List<Map<String, dynamic>> _matrixData = [];
   List<Map<String, dynamic>> _mistakes = [];
 
@@ -47,7 +54,10 @@ class _RevisitTabState extends State<RevisitTab> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final due = await DatabaseService.instance.getAllDueBacklogRevisits(subject: widget.selectedSubject);
+    final due = await DatabaseService.instance.getDueBacklogCategorized(
+      date: DateTime.now(),
+      subject: widget.selectedSubject,
+    );
     final matrix = await DatabaseService.instance.getRetentionMatrixData();
     final mistakes = await DatabaseService.instance.getMistakeRecordsFiltered(
       subject: widget.selectedSubject,
@@ -72,6 +82,21 @@ class _RevisitTabState extends State<RevisitTab> {
     widget.onDataChanged();
   }
 
+  Future<void> _toggleQuiz(Map<String, dynamic> q, bool done) async {
+    final id = q['id'] as int;
+    await DatabaseService.instance.toggleQuizStatus(id, done);
+    await _loadData();
+    widget.onDataChanged();
+  }
+
+  Future<void> _toggleLecture(Map<String, dynamic> lec, bool done) async {
+    final id = lec['id'] as int;
+    final dur = (lec['duration_hours'] as num?)?.toDouble() ?? 1.0;
+    await DatabaseService.instance.toggleLectureStatus(id, done, dur, DateTime.now());
+    await _loadData();
+    widget.onDataChanged();
+  }
+
   Future<void> _toggleMistakeResolved(Map<String, dynamic> m, bool resolved) async {
     final id = m['id'] as int;
     await DatabaseService.instance.toggleMistakeResolved(id, resolved);
@@ -79,25 +104,32 @@ class _RevisitTabState extends State<RevisitTab> {
     widget.onDataChanged();
   }
 
+  // --- Modernized Google Tasks M3 Add Mistake Entry Form ---
+
   void _showAddMistakeSheet() {
-    final titleController = TextEditingController();
-    final subjectController = TextEditingController(text: widget.selectedSubject != 'All Subjects' ? widget.selectedSubject : 'Linear Algebra');
+    final topicController = TextEditingController();
+    final subjectController = TextEditingController(
+      text: widget.selectedSubject != 'All Subjects' ? widget.selectedSubject : 'Linear Algebra',
+    );
+    final quizController = TextEditingController();
     final questionController = TextEditingController();
-    final wrongAnswerController = TextEditingController();
-    final correctAnswerController = TextEditingController();
+    final reasonController = TextEditingController();
     final takeawayController = TextEditingController();
-    final quizTitleController = TextEditingController();
     String severity = 'MEDIUM';
-    bool isPreview = false;
+    int modeTab = 0; // 0: Write Note, 1: Markdown Preview
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Container(
-              height: MediaQuery.of(context).size.height * 0.85,
+              height: MediaQuery.of(context).size.height * 0.88,
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom + 16,
                 top: 16,
@@ -109,7 +141,7 @@ class _RevisitTabState extends State<RevisitTab> {
                 children: [
                   Center(
                     child: Container(
-                      width: 36,
+                      width: 40,
                       height: 4,
                       decoration: BoxDecoration(
                         color: const Color(0xFFE0E2EC),
@@ -122,141 +154,212 @@ class _RevisitTabState extends State<RevisitTab> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Add Mistake Note',
+                        'New Mistake Record',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: googleTextPrimary),
                       ),
-                      TextButton.icon(
-                        icon: Icon(isPreview ? Icons.edit : Icons.remove_red_eye, size: 16, color: googleBlue),
-                        label: Text(isPreview ? 'Edit Note' : 'Preview MD', style: const TextStyle(fontSize: 12, color: googleBlue)),
-                        onPressed: () => setSheetState(() => isPreview = !isPreview),
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F3F4),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () => setSheetState(() => modeTab = 0),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: modeTab == 0 ? Colors.white : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Text(
+                                  'Write',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: modeTab == 0 ? FontWeight.bold : FontWeight.normal,
+                                    color: modeTab == 0 ? googleBlue : googleTextSecondary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () => setSheetState(() => modeTab = 1),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: modeTab == 1 ? Colors.white : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Text(
+                                  'Preview',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: modeTab == 1 ? FontWeight.bold : FontWeight.normal,
+                                    color: modeTab == 1 ? googleBlue : googleTextSecondary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
                   const Divider(height: 1, thickness: 1, color: googleHairline),
                   const SizedBox(height: 12),
+
                   Expanded(
-                    child: isPreview
+                    child: modeTab == 1
                         ? ListView(
                             children: [
-                              Text(titleController.text.isEmpty ? 'Untitled Topic' : titleController.text, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 8),
-                              MarkdownBody(
-                                data: takeawayController.text.isEmpty ? '_No markdown body entered yet._' : takeawayController.text,
-                                selectable: true,
-                                onTapLink: (text, href, title) async {
-                                  if (href != null) {
-                                    final uri = Uri.parse(href);
-                                    if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                                  }
-                                },
+                              Text(
+                                topicController.text.isEmpty ? 'Untitled Topic' : topicController.text,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${subjectController.text} • Severity: $severity',
+                                style: const TextStyle(fontSize: 12, color: googleTextSecondary),
+                              ),
+                              const SizedBox(height: 12),
+                              if (reasonController.text.isNotEmpty) ...[
+                                const Text('WHY IT WENT WRONG', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: severityMed)),
+                                const SizedBox(height: 4),
+                                Text(reasonController.text, style: const TextStyle(fontSize: 13)),
+                                const SizedBox(height: 12),
+                              ],
+                              const Text('TAKEAWAYS & FORMULAS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue)),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFD),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: googleHairline),
+                                ),
+                                child: MarkdownBody(
+                                  data: takeawayController.text.isEmpty ? '_No markdown entered yet._' : takeawayController.text,
+                                  selectable: true,
+                                  onTapLink: (text, href, title) => openExternalUrl(href),
+                                ),
                               ),
                             ],
                           )
                         : ListView(
                             children: [
-                              TextField(
-                                controller: titleController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Topic / Formula Name',
-                                  labelStyle: TextStyle(fontSize: 13, color: googleTextSecondary),
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
+                              // 1. Topic Field (Required)
+                              _buildInputField(
+                                controller: topicController,
+                                label: 'Topic / Core Concept',
+                                hint: 'e.g., Matrix Limits, Linear Independence formula',
                               ),
                               const SizedBox(height: 12),
+
+                              // 2. Subject & Severity Selector
                               Row(
                                 children: [
                                   Expanded(
-                                    child: TextField(
+                                    child: _buildInputField(
                                       controller: subjectController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Subject',
-                                        labelStyle: TextStyle(fontSize: 13, color: googleTextSecondary),
-                                        border: OutlineInputBorder(),
-                                        isDense: true,
-                                      ),
+                                      label: 'Subject',
+                                      hint: 'e.g., Linear Algebra',
                                     ),
                                   ),
                                   const SizedBox(width: 12),
-                                  DropdownButton<String>(
-                                    value: severity,
-                                    underline: const SizedBox(),
-                                    items: const [
-                                      DropdownMenuItem(value: 'HIGH', child: Text('HIGH', style: TextStyle(color: severityHigh, fontWeight: FontWeight.bold, fontSize: 12))),
-                                      DropdownMenuItem(value: 'MEDIUM', child: Text('MED', style: TextStyle(color: severityMed, fontWeight: FontWeight.bold, fontSize: 12))),
-                                      DropdownMenuItem(value: 'LOW', child: Text('LOW', style: TextStyle(color: severityLow, fontWeight: FontWeight.bold, fontSize: 12))),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('SEVERITY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          _buildSeverityPill('HIGH', severity == 'HIGH', severityHigh, () => setSheetState(() => severity = 'HIGH')),
+                                          const SizedBox(width: 4),
+                                          _buildSeverityPill('MED', severity == 'MEDIUM', severityMed, () => setSheetState(() => severity = 'MEDIUM')),
+                                          const SizedBox(width: 4),
+                                          _buildSeverityPill('LOW', severity == 'LOW', severityLow, () => setSheetState(() => severity = 'LOW')),
+                                        ],
+                                      ),
                                     ],
-                                    onChanged: (val) {
-                                      if (val != null) setSheetState(() => severity = val);
-                                    },
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              TextField(
-                                controller: quizTitleController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Quiz / Test Source (Optional)',
-                                  labelStyle: TextStyle(fontSize: 13, color: googleTextSecondary),
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
+
+                              // 3. Quiz Source (Optional)
+                              _buildInputField(
+                                controller: quizController,
+                                label: 'Quiz / Test Source (Optional)',
+                                hint: 'e.g., Weekly Quiz 1, GO Classes DA',
                               ),
                               const SizedBox(height: 12),
-                              TextField(
+
+                              // 4. Question Text / GateOverflow URL
+                              _buildInputField(
                                 controller: questionController,
-                                maxLines: 3,
-                                decoration: const InputDecoration(
-                                  labelText: 'Question or GateOverflow Link',
-                                  labelStyle: TextStyle(fontSize: 13, color: googleTextSecondary),
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
+                                label: 'Question or GateOverflow URL',
+                                hint: 'Paste problem statement or question link',
+                                maxLines: 2,
                               ),
                               const SizedBox(height: 12),
-                              TextField(
+
+                              // 5. What Went Wrong (Required)
+                              _buildInputField(
+                                controller: reasonController,
+                                label: 'What Went Wrong (Reason)',
+                                hint: 'Why was this answer wrong? Concept gap or silly trap?',
+                                maxLines: 2,
+                              ),
+                              const SizedBox(height: 12),
+
+                              // 6. Key Takeaways & Formulas (Markdown)
+                              _buildInputField(
                                 controller: takeawayController,
-                                maxLines: 6,
-                                decoration: const InputDecoration(
-                                  labelText: 'Key Takeaways & ChatGPT Notes (Markdown supported)',
-                                  hintText: 'Paste explanation, formulas, c!=0 -> independent, links...',
-                                  labelStyle: TextStyle(fontSize: 13, color: googleTextSecondary),
-                                  border: OutlineInputBorder(),
-                                ),
+                                label: 'Key Takeaways & ChatGPT Notes (Markdown)',
+                                hint: 'Paste ChatGPT explanation, formulas, bullet points, links...',
+                                maxLines: 5,
                               ),
                             ],
                           ),
                   ),
+
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton(
                       onPressed: () async {
-                        final topic = titleController.text.trim();
+                        final top = topicController.text.trim();
+                        final reason = reasonController.text.trim();
                         final takeaway = takeawayController.text.trim();
-                        if (topic.isNotEmpty) {
-                          await DatabaseService.instance.insertMistakeRecord(
-                            subject: subjectController.text.trim(),
-                            topic: topic,
-                            questionText: questionController.text.trim(),
-                            wrongAnswer: wrongAnswerController.text.trim(),
-                            correctAnswer: correctAnswerController.text.trim(),
-                            keyTakeaway: takeaway.isNotEmpty ? takeaway : topic,
-                            quizTitle: quizTitleController.text.trim(),
-                            severity: severity,
+                        if (top.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Please enter a Topic')),
                           );
-                          await _loadData();
-                          widget.onDataChanged();
-                          Navigator.pop(context);
+                          return;
                         }
+                        await DatabaseService.instance.insertMistakeRecord(
+                          subject: subjectController.text.trim().isEmpty ? 'General' : subjectController.text.trim(),
+                          topic: top,
+                          questionText: questionController.text.trim(),
+                          mistakeReason: reason,
+                          keyTakeaway: takeaway.isNotEmpty ? takeaway : (reason.isNotEmpty ? reason : top),
+                          quizTitle: quizController.text.trim(),
+                          severity: severity,
+                        );
+                        await _loadData();
+                        widget.onDataChanged();
+                        Navigator.pop(context);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: googleBlue,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: const Text('Save Mistake Note'),
+                      child: const Text('Save Mistake Record', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
@@ -268,7 +371,63 @@ class _RevisitTabState extends State<RevisitTab> {
     );
   }
 
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    int maxLines = 1,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: googleHairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleTextSecondary)),
+          TextField(
+            controller: controller,
+            maxLines: maxLines,
+            style: const TextStyle(fontSize: 14, color: googleTextPrimary),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: hint,
+              hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF9AA0A6)),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.only(top: 4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSeverityPill(String text, bool isSelected, Color col, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? col : const Color(0xFFF1F3F4),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: isSelected ? Colors.white : googleTextSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showMistakeDetails(Map<String, dynamic> m) {
+    final id = m['id'] as int;
     final topic = m['topic'] ?? 'Mistake Record';
     final subject = m['subject'] ?? 'General';
     final severity = m['severity'] ?? 'MEDIUM';
@@ -286,6 +445,10 @@ class _RevisitTabState extends State<RevisitTab> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) {
         return Container(
           height: MediaQuery.of(context).size.height * 0.85,
@@ -295,7 +458,7 @@ class _RevisitTabState extends State<RevisitTab> {
             children: [
               Center(
                 child: Container(
-                  width: 36,
+                  width: 40,
                   height: 4,
                   decoration: BoxDecoration(
                     color: const Color(0xFFE0E2EC),
@@ -336,6 +499,16 @@ class _RevisitTabState extends State<RevisitTab> {
                       );
                     },
                   ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18, color: severityHigh),
+                    tooltip: 'Delete Record',
+                    onPressed: () async {
+                      await DatabaseService.instance.deleteMistakeRecord(id);
+                      await _loadData();
+                      widget.onDataChanged();
+                      Navigator.pop(context);
+                    },
+                  ),
                 ],
               ),
               Text(
@@ -355,12 +528,7 @@ class _RevisitTabState extends State<RevisitTab> {
                       MarkdownBody(
                         data: qText,
                         selectable: true,
-                        onTapLink: (text, href, title) async {
-                          if (href != null) {
-                            final uri = Uri.parse(href);
-                            if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                          }
-                        },
+                        onTapLink: (text, href, title) => openExternalUrl(href),
                       ),
                       const SizedBox(height: 16),
                     ],
@@ -383,12 +551,7 @@ class _RevisitTabState extends State<RevisitTab> {
                         child: MarkdownBody(
                           data: takeaway,
                           selectable: true,
-                          onTapLink: (text, href, title) async {
-                            if (href != null) {
-                              final uri = Uri.parse(href);
-                              if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                            }
-                          },
+                          onTapLink: (text, href, title) => openExternalUrl(href),
                         ),
                       ),
                     ],
@@ -396,24 +559,21 @@ class _RevisitTabState extends State<RevisitTab> {
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: Icon(isResolved ? Icons.undo : Icons.check_circle_outline, size: 16),
-                      label: Text(isResolved ? 'Mark Unresolved' : 'Mark Resolved'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: isResolved ? googleTextSecondary : googleGreen,
-                        side: BorderSide(color: isResolved ? googleBorder : googleGreen),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      onPressed: () async {
-                        await _toggleMistakeResolved(m, !isResolved);
-                        Navigator.pop(context);
-                      },
-                    ),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: Icon(isResolved ? Icons.undo : Icons.check_circle_outline, size: 16),
+                  label: Text(isResolved ? 'Mark Unresolved' : 'Mark Resolved'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: isResolved ? googleTextSecondary : googleGreen,
+                    side: BorderSide(color: isResolved ? googleBorder : googleGreen),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   ),
-                ],
+                  onPressed: () async {
+                    await _toggleMistakeResolved(m, !isResolved);
+                    Navigator.pop(context);
+                  },
+                ),
               ),
             ],
           ),
@@ -428,6 +588,10 @@ class _RevisitTabState extends State<RevisitTab> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
@@ -439,7 +603,7 @@ class _RevisitTabState extends State<RevisitTab> {
                 children: [
                   Center(
                     child: Container(
-                      width: 36,
+                      width: 40,
                       height: 4,
                       decoration: BoxDecoration(
                         color: const Color(0xFFE0E2EC),
@@ -528,11 +692,15 @@ class _RevisitTabState extends State<RevisitTab> {
 
   @override
   Widget build(BuildContext context) {
+    final totalDueCount = (_dueBacklog['recalls']?.length ?? 0) +
+        (_dueBacklog['quizzes']?.length ?? 0) +
+        (_dueBacklog['lectures']?.length ?? 0);
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // Sub-Tab Switcher
+          // 3 Main Sub-Tabs Switcher
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: Colors.white,
@@ -544,7 +712,7 @@ class _RevisitTabState extends State<RevisitTab> {
               ),
               child: Row(
                 children: [
-                  _buildSubTab(0, 'Due / Backlog', _dueBacklog.length),
+                  _buildSubTab(0, 'Due / Backlog', totalDueCount),
                   _buildSubTab(1, 'Retention Matrix', 0),
                   _buildSubTab(2, 'Mistakes', _mistakes.length),
                 ],
@@ -559,7 +727,7 @@ class _RevisitTabState extends State<RevisitTab> {
                 : IndexedStack(
                     index: _activeSubIndex,
                     children: [
-                      _buildDueBacklogView(),
+                      _buildDueBacklogCategorizedView(),
                       _buildRetentionMatrixView(),
                       _buildMistakesView(),
                     ],
@@ -567,15 +735,41 @@ class _RevisitTabState extends State<RevisitTab> {
           ),
         ],
       ),
-      floatingActionButton: _activeSubIndex == 2
-          ? FloatingActionButton(
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (widget.onOpenFilter != null)
+            FloatingActionButton.small(
+              heroTag: 'revisit_filter_fab',
+              elevation: 2,
+              backgroundColor: widget.selectedSubject != 'All Subjects' ? googleBlue : Colors.white,
+              foregroundColor: widget.selectedSubject != 'All Subjects' ? Colors.white : googleTextPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(
+                  color: widget.selectedSubject != 'All Subjects' ? googleBlue : googleBorder,
+                ),
+              ),
+              tooltip: 'Filter by Subject',
+              onPressed: widget.onOpenFilter,
+              child: const Icon(Icons.tune_rounded, size: 20),
+            ),
+          if (_activeSubIndex == 2) ...[
+            const SizedBox(height: 12),
+            FloatingActionButton(
+              heroTag: 'revisit_add_mistake_fab',
               elevation: 3,
               backgroundColor: googleBlue,
               foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               onPressed: _showAddMistakeSheet,
-              child: const Icon(Icons.add),
-            )
-          : null,
+              tooltip: 'New Mistake Entry',
+              child: const Icon(Icons.add_rounded, size: 26),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -637,128 +831,336 @@ class _RevisitTabState extends State<RevisitTab> {
     );
   }
 
-  // --- Sub-Tab 0: Due & Backlog ---
+  // --- Sub-Tab 0: Due & Backlog (Categorized: Recalls, Quizzes, Lectures) ---
 
-  Widget _buildDueBacklogView() {
+  Widget _buildDueBacklogCategorizedView() {
+    final recalls = _dueBacklog['recalls'] ?? [];
+    final quizzes = _dueBacklog['quizzes'] ?? [];
+    final lectures = _dueBacklog['lectures'] ?? [];
+
     return ListView(
       padding: EdgeInsets.zero,
       children: [
-        // DPP protocol banner
+        // DPP Protocol header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           color: const Color(0xFFF8FAFD),
           child: Row(
             children: [
-              const Icon(Icons.psychology, size: 18, color: googleBlue),
-              const SizedBox(width: 8),
               const Expanded(
                 child: Text(
                   'Solve assigned DPPs & practice questions on GateOverflow',
-                  style: TextStyle(fontSize: 12, color: googleTextPrimary),
+                  style: TextStyle(fontSize: 12, color: googleTextPrimary, fontWeight: FontWeight.w500),
                 ),
               ),
               InkWell(
-                onTap: () async {
-                  final uri = Uri.parse('https://gateoverflow.in');
-                  if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
-                },
-                child: const Text('GO DPPs ↗', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue)),
+                onTap: () => openExternalUrl('https://gateoverflow.in'),
+                child: const Row(
+                  children: [
+                    Text('GateOverflow', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue)),
+                    SizedBox(width: 4),
+                    Icon(Icons.open_in_new_rounded, size: 14, color: googleBlue),
+                  ],
+                ),
               ),
             ],
           ),
         ),
         const Divider(height: 1, thickness: 1, color: googleHairline),
 
-        if (_dueBacklog.isEmpty)
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
-            child: const Center(
-              child: Text(
-                'No pending revisits in backlog! You are completely caught up.',
-                style: TextStyle(fontSize: 14, color: googleTextSecondary),
-              ),
-            ),
-          )
-        else ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'ACTIVE RECALL BACKLOG',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: googleTextSecondary, letterSpacing: 0.6),
-                ),
-                Text('${_dueBacklog.length} items', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-              ],
-            ),
+        // Sub-categories switcher: Recalls | Quizzes | Lectures
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Row(
+            children: [
+              _buildCategoryPill(0, 'Recalls (${recalls.length})'),
+              const SizedBox(width: 8),
+              _buildCategoryPill(1, 'Quizzes (${quizzes.length})'),
+              const SizedBox(width: 8),
+              _buildCategoryPill(2, 'Lectures (${lectures.length})'),
+            ],
           ),
-          ..._dueBacklog.map((rev) {
-            final isDone = (rev['status'] as String?)?.toUpperCase() == 'DONE';
-            final stage = rev['stage'] ?? 'Recall';
-            final dur = rev['duration_mins'] ?? 25;
-            final topic = rev['topic'] ?? '';
-            final due = rev['due_date'] ?? '';
+        ),
+        const Divider(height: 1, thickness: 1, color: googleHairline),
 
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 20, 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      GoogleCheckbox(
-                        value: isDone,
-                        onChanged: (val) => _toggleRevisit(rev, val),
-                      ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              topic,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: isDone ? googleTextSecondary : googleTextPrimary,
-                                decoration: isDone ? TextDecoration.lineThrough : null,
-                                height: 1.25,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF1F3F4),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    stage,
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleTextPrimary),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text('$dur mins • Due: $due', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(left: 56),
-                  child: Divider(height: 1, thickness: 1, color: googleHairline),
-                ),
-              ],
-            );
-          }),
-        ],
+        // Current Category View
+        if (_activeDueCategoryIndex == 0) _buildDueRecallsList(recalls),
+        if (_activeDueCategoryIndex == 1) _buildDueQuizzesList(quizzes),
+        if (_activeDueCategoryIndex == 2) _buildDueLecturesList(lectures),
         const SizedBox(height: 80),
       ],
+    );
+  }
+
+  Widget _buildCategoryPill(int index, String title) {
+    final isSelected = _activeDueCategoryIndex == index;
+    return GestureDetector(
+      onTap: () => setState(() => _activeDueCategoryIndex = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? googleBlue : const Color(0xFFF1F3F4),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          title,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected ? Colors.white : googleTextSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDueRecallsList(List<Map<String, dynamic>> recalls) {
+    if (recalls.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+        child: const Center(
+          child: Text(
+            'No pending retention recalls due. All memory drops are up to date.',
+            style: TextStyle(fontSize: 13, color: googleTextSecondary),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: recalls.map((rev) {
+        final isDone = (rev['status'] as String?)?.toUpperCase() == 'DONE';
+        final stage = rev['stage'] ?? 'Recall';
+        final dur = rev['duration_mins'] ?? 25;
+        final topic = rev['topic'] ?? '';
+        final due = rev['due_date'] ?? '';
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 20, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GoogleCheckbox(
+                    value: isDone,
+                    onChanged: (val) => _toggleRevisit(rev, val),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          topic,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: isDone ? googleTextSecondary : googleTextPrimary,
+                            decoration: isDone ? TextDecoration.lineThrough : null,
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F3F4),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                stage,
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleTextPrimary),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text('$dur mins • Due: $due', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(left: 56),
+              child: Divider(height: 1, thickness: 1, color: googleHairline),
+            ),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildDueQuizzesList(List<Map<String, dynamic>> quizzes) {
+    if (quizzes.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+        child: const Center(
+          child: Text(
+            'No overdue quizzes. All assessments up to date.',
+            style: TextStyle(fontSize: 13, color: googleTextSecondary),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: quizzes.map((q) {
+        final isDone = (q['status'] as String?)?.toUpperCase() == 'COMPLETED';
+        final title = q['title'] ?? 'Quiz';
+        final subject = q['subject'] ?? '';
+        final date = q['date_str'] ?? '';
+        final dur = q['duration_mins'] ?? 45;
+        final marks = q['total_marks'] ?? 25;
+        final url = q['action_url'] as String?;
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 20, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GoogleCheckbox(
+                    value: isDone,
+                    onChanged: (val) => _toggleQuiz(q, val),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: isDone ? googleTextSecondary : googleTextPrimary,
+                            decoration: isDone ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            if (subject.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                margin: const EdgeInsets.only(right: 6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F3F4),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  subject.toUpperCase(),
+                                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                                ),
+                              ),
+                            Text('$date • $dur mins • $marks Marks', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                            const Spacer(),
+                            if (url != null && url.isNotEmpty)
+                              InkWell(
+                                onTap: () => openExternalUrl(url),
+                                child: const Row(
+                                  children: [
+                                    Text('Start Quiz', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue)),
+                                    SizedBox(width: 2),
+                                    Icon(Icons.open_in_new, size: 12, color: googleBlue),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(left: 56),
+              child: Divider(height: 1, thickness: 1, color: googleHairline),
+            ),
+          ],
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildDueLecturesList(List<Map<String, dynamic>> lectures) {
+    if (lectures.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+        child: const Center(
+          child: Text(
+            'No backlog lectures. Curriculum schedule is up to date.',
+            style: TextStyle(fontSize: 13, color: googleTextSecondary),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: lectures.map((lec) {
+        final isDone = (lec['status'] as String?)?.toUpperCase() == 'COMPLETED';
+        final title = lec['details'] ?? lec['topic'] ?? 'Lecture';
+        final topic = lec['topic'] ?? '';
+        final date = lec['date_str'] ?? '';
+        final dur = (lec['duration_hours'] as num?)?.toDouble() ?? 1.0;
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 20, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GoogleCheckbox(
+                    value: isDone,
+                    onChanged: (val) => _toggleLecture(lec, val),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: isDone ? googleTextSecondary : googleTextPrimary,
+                            decoration: isDone ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              margin: const EdgeInsets.only(right: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF0D4),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text('BACKLOG', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: googleAmber)),
+                            ),
+                            Text('$topic • $date • ${dur.toStringAsFixed(1)}h', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(left: 56),
+              child: Divider(height: 1, thickness: 1, color: googleHairline),
+            ),
+          ],
+        );
+      }).toList(),
     );
   }
 
@@ -781,7 +1183,6 @@ class _RevisitTabState extends State<RevisitTab> {
         ),
         const SizedBox(height: 20),
 
-        // Heatmap Grid
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: DataTable(
@@ -900,7 +1301,7 @@ class _RevisitTabState extends State<RevisitTab> {
             padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
             child: const Center(
               child: Text(
-                'No mistake records found matching filters.\nTap + to log tricky questions or ChatGPT notes!',
+                'No mistake records found matching filters.\nTap + to log tricky questions or ChatGPT notes.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: googleTextSecondary, height: 1.4),
               ),

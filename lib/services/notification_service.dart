@@ -25,6 +25,16 @@ class NotificationService {
         // Handle notification tapped logic if needed
       },
     );
+
+    await requestPermissions();
+  }
+
+  Future<bool> requestPermissions() async {
+    final android = flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    final granted = await android?.requestNotificationsPermission();
+    await android?.requestExactAlarmsPermission();
+    return granted ?? false;
   }
 
   Future<void> scheduleReminder({

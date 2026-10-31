@@ -6,11 +6,13 @@ import 'package:tasks/widgets/google_checkbox.dart';
 class TimetableTab extends StatefulWidget {
   final VoidCallback onDataChanged;
   final String selectedSubject;
+  final VoidCallback? onOpenFilter;
 
   const TimetableTab({
     Key? key,
     required this.onDataChanged,
     this.selectedSubject = 'All Subjects',
+    this.onOpenFilter,
   }) : super(key: key);
 
   @override
@@ -73,9 +75,9 @@ class _TimetableTabState extends State<TimetableTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.white,
-      child: Column(
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Column(
         children: [
           // Google Search Header (Flat on canvas)
           Padding(
@@ -133,6 +135,23 @@ class _TimetableTabState extends State<TimetableTab> {
           ),
         ],
       ),
+      floatingActionButton: widget.onOpenFilter != null
+          ? FloatingActionButton.small(
+              heroTag: 'timetable_filter_fab',
+              elevation: 2,
+              backgroundColor: widget.selectedSubject != 'All Subjects' ? googleBlue : Colors.white,
+              foregroundColor: widget.selectedSubject != 'All Subjects' ? Colors.white : googleTextPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(
+                  color: widget.selectedSubject != 'All Subjects' ? googleBlue : googleBorder,
+                ),
+              ),
+              tooltip: 'Filter by Subject',
+              onPressed: widget.onOpenFilter,
+              child: const Icon(Icons.tune_rounded, size: 20),
+            )
+          : null,
     );
   }
 
