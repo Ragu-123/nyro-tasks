@@ -56,10 +56,10 @@ class DatabaseService {
     double watchedHours = 0.0;
 
     if (lecs.isNotEmpty) {
-      targetHours = lecs.fold(0.0, (sum, l) => sum + ((l['duration_hours'] as num?)?.toDouble() ?? 1.0));
+      targetHours = lecs.fold<double>(0.0, (sum, l) => sum + ((l['duration_hours'] as num?)?.toDouble() ?? 1.0));
       watchedHours = lecs
           .where((l) => (l['status'] as String?)?.toUpperCase() == 'COMPLETED')
-          .fold(0.0, (sum, l) => sum + ((l['duration_hours'] as num?)?.toDouble() ?? 1.0));
+          .fold<double>(0.0, (sum, l) => sum + ((l['duration_hours'] as num?)?.toDouble() ?? 1.0));
     } else if (daily.isNotEmpty) {
       targetHours = (daily.first['target_hours'] as num?)?.toDouble() ?? 8.0;
       watchedHours = (daily.first['watched_hours'] as num?)?.toDouble() ?? 0.0;

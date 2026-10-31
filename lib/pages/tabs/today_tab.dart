@@ -436,7 +436,7 @@ class _TodayTabState extends State<TodayTab> {
           ...groups.entries.map((entry) {
             final blockTitle = entry.key;
             final items = entry.value;
-            final totalHours = items.fold(0.0, (sum, l) => sum + ((l['duration_hours'] as num?)?.toDouble() ?? 1.0));
+            final totalHours = items.fold<double>(0.0, (sum, l) => sum + ((l['duration_hours'] as num?)?.toDouble() ?? 1.0));
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
