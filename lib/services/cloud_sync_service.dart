@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -42,31 +43,98 @@ class CloudSyncService {
     } catch (_) {}
   }
 
-  // 2. Upload local Android database to Hub as android_nyro.db
+  // 2. Upload local Android database to Hub as android_nyro.db via Git LFS
   Future<void> uploadAndroidDbToHub({required String token}) async {
     final localDbPath = await DatabaseService.instance.getDbPath();
-    final bytes = await File(localDbPath).readAsBytes();
-    final base64Content = base64Encode(bytes);
+    final file = File(localDbPath);
+    if (!await file.exists()) {
+      throw Exception('Local database file not found at $localDbPath');
+    }
+    final bytes = await file.readAsBytes();
+    final sha256Hex = sha256.convert(bytes).toString();
+    final size = bytes.length;
 
-    final url = Uri.parse('https://huggingface.co/api/datasets/$hfAndroidDatasetRepo/commit/main');
+    // Step 1: Request Git LFS batch upload
+    final batchUrl = Uri.parse('https://huggingface.co/datasets/$hfAndroidDatasetRepo.git/info/lfs/objects/batch');
+    final batchPayload = jsonEncode({
+      'operation': 'upload',
+      'transfers': ['basic'],
+      'objects': [
+        {
+          'oid': sha256Hex,
+          'size': size,
+        }
+      ],
+    });
 
-    final lines = [
+    final batchResponse = await http.post(
+      batchUrl,
+      headers: {
+        'Accept': 'application/vnd.git-lfs+json',
+        'Content-Type': 'application/vnd.git-lfs+json',
+        'Authorization': 'Bearer ${token.trim()}',
+      },
+      body: batchPayload,
+    );
+
+    if (batchResponse.statusCode != 200) {
+      throw Exception('Failed to initiate LFS upload (Status ${batchResponse.statusCode}): ${batchResponse.body}');
+    }
+
+    final batchData = jsonDecode(batchResponse.body) as Map<String, dynamic>;
+    final objects = batchData['objects'] as List<dynamic>?;
+    if (objects == null || objects.isEmpty) {
+      throw Exception('Invalid LFS batch response from Hugging Face');
+    }
+
+    final firstObj = objects[0] as Map<String, dynamic>;
+    final actions = firstObj['actions'] as Map<String, dynamic>?;
+
+    // Step 2: Upload raw file bytes to storage href if upload action provided
+    if (actions != null && actions.containsKey('upload')) {
+      final uploadInfo = actions['upload'] as Map<String, dynamic>;
+      final href = uploadInfo['href'] as String;
+      final rawHeaders = uploadInfo['header'] as Map<String, dynamic>? ?? {};
+      final uploadHeaders = rawHeaders.map((k, v) => MapEntry(k, v.toString()));
+
+      final putResponse = await http.put(
+        Uri.parse(href),
+        headers: uploadHeaders,
+        body: bytes,
+      );
+
+      if (putResponse.statusCode != 200 && putResponse.statusCode != 201) {
+        throw Exception('Failed to upload DB binary to storage (Status ${putResponse.statusCode}): ${putResponse.body}');
+      }
+    }
+
+    // Step 3: Commit the LFS pointer to git
+    final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$hfAndroidDatasetRepo/commit/main');
+    final ndjsonLines = [
       jsonEncode({'key': 'header', 'value': {'summary': 'Sync android_nyro.db from Android Tasks app'}}),
-      jsonEncode({'key': 'file', 'value': {'content': base64Content, 'path': 'android_nyro.db', 'encoding': 'base64'}})
+      jsonEncode({
+        'key': 'lfsFile',
+        'value': {
+          'path': 'android_nyro.db',
+          'algo': 'sha256',
+          'oid': sha256Hex,
+          'size': size,
+        }
+      }),
     ];
-    final payload = '${lines.join('\n')}\n';
+    final commitPayload = '${ndjsonLines.join('\n')}\n';
 
-    final response = await http.post(
-      url,
+    final commitResponse = await http.post(
+      commitUrl,
       headers: {
         'Authorization': 'Bearer ${token.trim()}',
         'Content-Type': 'application/x-ndjson',
       },
-      body: utf8.encode(payload),
+      body: utf8.encode(commitPayload),
     );
 
-    if (response.statusCode != 200) {
-      throw Exception('Failed to upload Android DB to Hub (Status ${response.statusCode}): ${response.body}');
+    if (commitResponse.statusCode != 200) {
+      throw Exception('Failed to commit Android DB to Hub (Status ${commitResponse.statusCode}): ${commitResponse.body}');
     }
   }
 

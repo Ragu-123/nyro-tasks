@@ -60,7 +60,8 @@ class DatabaseService {
   Future<Map<String, dynamic>> getDailyPacing(DateTime date) async {
     final db = await database;
     final isoDate = DateFormat('yyyy-MM-dd').format(date);
-    final formattedDate = DateFormat('d MMM yyyy').format(date);
+    final dayPadded = DateFormat('dd MMM yyyy').format(date);
+    final dayUnpadded = DateFormat('d MMM yyyy').format(date);
 
     // 1. Try reading daily_sessions
     final daily = await db.query(
@@ -70,10 +71,10 @@ class DatabaseService {
       limit: 1,
     );
 
-    // 2. Query today's lectures
+    // 2. Query today's lectures (exact date match to prevent multi-day substring overcounting)
     final lecs = await db.rawQuery(
-      'SELECT * FROM lectures WHERE lower(date_str) LIKE lower(?)',
-      ['%$formattedDate%'],
+      'SELECT * FROM lectures WHERE (lower(trim(date_str)) = lower(?) OR lower(trim(date_str)) = lower(?) OR date_str = ?)',
+      [dayPadded, dayUnpadded, isoDate],
     );
 
     double targetHours = 8.0;
@@ -104,10 +105,12 @@ class DatabaseService {
 
   Future<List<Map<String, dynamic>>> getLecturesForDate(DateTime date) async {
     final db = await database;
-    final formattedDate = DateFormat('d MMM yyyy').format(date);
+    final isoDate = DateFormat('yyyy-MM-dd').format(date);
+    final dayPadded = DateFormat('dd MMM yyyy').format(date);
+    final dayUnpadded = DateFormat('d MMM yyyy').format(date);
     return await db.rawQuery(
-      'SELECT * FROM lectures WHERE lower(date_str) LIKE lower(?) ORDER BY id ASC',
-      ['%$formattedDate%'],
+      'SELECT * FROM lectures WHERE (lower(trim(date_str)) = lower(?) OR lower(trim(date_str)) = lower(?) OR date_str = ?) ORDER BY id ASC',
+      [dayPadded, dayUnpadded, isoDate],
     );
   }
 
@@ -144,17 +147,21 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getDueRevisitsForDate(DateTime date) async {
     final db = await database;
     final isoDate = DateFormat('yyyy-MM-dd').format(date);
-    final formattedDate = DateFormat('d MMM yyyy').format(date);
+    final dayPadded = DateFormat('dd MMM yyyy').format(date);
+    final dayUnpadded = DateFormat('d MMM yyyy').format(date);
 
     return await db.rawQuery(
-      'SELECT * FROM revisit_items WHERE (due_date = ? OR lower(due_date) LIKE lower(?)) ORDER BY id ASC',
-      [isoDate, '%$formattedDate%'],
+      'SELECT * FROM revisit_items WHERE (due_date = ? OR lower(trim(due_date)) = lower(?) OR lower(trim(due_date)) = lower(?)) ORDER BY id ASC',
+      [isoDate, dayPadded, dayUnpadded],
     );
   }
 
   DateTime? _parseDateSafe(String? str) {
     if (str == null || str.trim().isEmpty) return null;
     final s = str.trim();
+    try {
+      return DateFormat('dd MMM yyyy').parse(s);
+    } catch (_) {}
     try {
       return DateFormat('d MMM yyyy').parse(s);
     } catch (_) {}
@@ -428,10 +435,12 @@ class DatabaseService {
 
   Future<List<Map<String, dynamic>>> getScheduledQuizzesForDate(DateTime date) async {
     final db = await database;
-    final formattedDate = DateFormat('d MMM yyyy').format(date);
+    final isoDate = DateFormat('yyyy-MM-dd').format(date);
+    final dayPadded = DateFormat('dd MMM yyyy').format(date);
+    final dayUnpadded = DateFormat('d MMM yyyy').format(date);
     return await db.rawQuery(
-      'SELECT * FROM quiz_items WHERE lower(date_str) LIKE lower(?) ORDER BY id ASC',
-      ['%$formattedDate%'],
+      'SELECT * FROM quiz_items WHERE (lower(trim(date_str)) = lower(?) OR lower(trim(date_str)) = lower(?) OR date_str = ?) ORDER BY id ASC',
+      [dayPadded, dayUnpadded, isoDate],
     );
   }
 
