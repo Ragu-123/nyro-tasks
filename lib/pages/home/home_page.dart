@@ -374,43 +374,108 @@ class _HomePageState extends State<HomePage> {
             const SizedBox(width: 4),
           ],
 
-          // Minimal Date Picker calendar button
-          IconButton(
-            icon: const Icon(Icons.event_outlined, size: 21, color: googleTextPrimary),
-            tooltip: 'Select Date',
-            onPressed: _pickDate,
-          ),
-
-          // Cloud Sync button (Hugging Face sync drop-up drawer)
-          IconButton(
-            icon: const Icon(Icons.cloud_sync_outlined, size: 22, color: googleTextPrimary),
-            tooltip: 'Cloud Sync',
-            onPressed: _showCloudSyncSheet,
-          ),
-
-          // Google Bell Icon with Live Badge Dot for Alerts & Reminders
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.notifications_none_rounded, size: 22, color: googleTextPrimary),
-                tooltip: 'Alerts & Reminders',
-                onPressed: _showAlertsSheet,
-              ),
-              Positioned(
-                top: 12,
-                right: 12,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: googleAmber,
-                    shape: BoxShape.circle,
+          // Single Three-Dots Menu merging Cloud Sync, Alerts & Routine, Date Picker, and Timetable
+          PopupMenuButton<String>(
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.more_vert_rounded, size: 22, color: googleTextPrimary),
+                Positioned(
+                  top: -1,
+                  right: -1,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: googleAmber,
+                      shape: BoxShape.circle,
+                    ),
                   ),
+                ),
+              ],
+            ),
+            tooltip: 'Options',
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            color: Colors.white,
+            offset: const Offset(0, 48),
+            onSelected: (value) {
+              switch (value) {
+                case 'sync':
+                  _showCloudSyncSheet();
+                  break;
+                case 'alerts':
+                  _showAlertsSheet();
+                  break;
+                case 'date':
+                  _pickDate();
+                  break;
+                case 'timetable':
+                  setState(() => _currentNavIndex = 1);
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'sync',
+                height: 44,
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_sync_outlined, size: 20, color: googleBlue),
+                    SizedBox(width: 12),
+                    Text(
+                      'Cloud Sync',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: googleTextPrimary),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'alerts',
+                height: 44,
+                child: Row(
+                  children: [
+                    Icon(Icons.notifications_none_rounded, size: 20, color: googleAmber),
+                    SizedBox(width: 12),
+                    Text(
+                      'Alerts & Routine',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: googleTextPrimary),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(height: 1),
+              const PopupMenuItem(
+                value: 'date',
+                height: 44,
+                child: Row(
+                  children: [
+                    Icon(Icons.event_outlined, size: 20, color: googleTextSecondary),
+                    SizedBox(width: 12),
+                    Text(
+                      'Jump to Date',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: googleTextPrimary),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'timetable',
+                height: 44,
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_month_outlined, size: 20, color: googleTextSecondary),
+                    SizedBox(width: 12),
+                    Text(
+                      'Curriculum Timetable',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: googleTextPrimary),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
         ],
       ),
 

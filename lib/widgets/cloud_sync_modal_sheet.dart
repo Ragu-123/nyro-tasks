@@ -340,101 +340,151 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF8FAFD),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: googleBorder),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE0E2EC)),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      hasToken ? Icons.verified_user_outlined : Icons.vpn_key_outlined,
-                                      size: 18,
-                                      color: hasToken ? googleGreen : googleBlue,
+                        child: hasToken
+                            ? Row(
+                                children: [
+                                  Container(
+                                    width: 38,
+                                    height: 38,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFE8F0FE),
+                                      shape: BoxShape.circle,
                                     ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      hasToken ? 'Authenticated Token' : 'Hugging Face Token',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: hasToken ? googleGreen : googleTextPrimary,
-                                      ),
+                                    child: const Icon(Icons.shield_outlined, color: googleBlue, size: 20),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Text(
+                                              'Hugging Face Auth',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                                color: googleTextPrimary,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              width: 6,
+                                              height: 6,
+                                              decoration: const BoxDecoration(
+                                                color: googleGreen,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _savedToken!.length > 10
+                                              ? '${_savedToken!.substring(0, 6)}••••••••${_savedToken!.substring(_savedToken!.length - 4)}'
+                                              : '••••••••',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: googleTextSecondary,
+                                            fontFamily: 'monospace',
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                                if (hasToken)
-                                  TextButton(
+                                  ),
+                                  OutlinedButton(
                                     onPressed: () {
                                       setState(() => _savedToken = null);
                                     },
-                                    style: TextButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      minimumSize: const Size(50, 30),
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    style: OutlinedButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                      side: const BorderSide(color: Color(0xFFDADCE0)),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                     ),
-                                    child: const Text('Change', style: TextStyle(fontSize: 12, color: googleBlue)),
+                                    child: const Text('Change', style: TextStyle(fontSize: 12, color: googleBlue, fontWeight: FontWeight.w600)),
                                   ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            if (!hasToken) ...[
-                              const Text(
-                                'Paste your personal Hugging Face access token with write access to King758/nyro-android-data.',
-                                style: TextStyle(fontSize: 12, color: googleTextSecondary),
-                              ),
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: _tokenController,
-                                obscureText: _obscureToken,
-                                style: const TextStyle(fontSize: 13),
-                                decoration: InputDecoration(
-                                  hintText: 'hf_xxxxxxxxxxxxxxxxxxxxxxxxx',
-                                  hintStyle: const TextStyle(fontSize: 13, color: googleTextSecondary),
-                                  isDense: true,
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(color: googleBorder),
+                                ],
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Row(
+                                    children: [
+                                      Icon(Icons.vpn_key_outlined, size: 18, color: googleBlue),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Hugging Face Access Token',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: googleTextPrimary,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscureToken ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                                      size: 18,
-                                      color: googleTextSecondary,
+                                  const SizedBox(height: 6),
+                                  const Text(
+                                    'Paste your personal access token (with write access) to backup and sync your database with Hub.',
+                                    style: TextStyle(fontSize: 12, color: googleTextSecondary, height: 1.3),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: _tokenController,
+                                    obscureText: _obscureToken,
+                                    style: const TextStyle(fontSize: 13),
+                                    decoration: InputDecoration(
+                                      hintText: 'hf_xxxxxxxxxxxxxxxxxxxxxxxxx',
+                                      hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF9AA0A6)),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                      prefixIcon: const Icon(Icons.key_rounded, size: 18, color: googleTextSecondary),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(
+                                          _obscureToken ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                                          size: 18,
+                                          color: googleTextSecondary,
+                                        ),
+                                        onPressed: () => setState(() => _obscureToken = !_obscureToken),
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(color: Color(0xFFDADCE0)),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(color: Color(0xFFDADCE0)),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(color: googleBlue, width: 1.5),
+                                      ),
                                     ),
-                                    onPressed: () => setState(() => _obscureToken = !_obscureToken),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: ElevatedButton.icon(
-                                  onPressed: _isSyncing ? null : _saveToken,
-                                  icon: const Icon(Icons.check_rounded, size: 16),
-                                  label: const Text('Save Token', style: TextStyle(fontSize: 13)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: googleBlue,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      FilledButton.icon(
+                                        onPressed: _isSyncing ? null : _saveToken,
+                                        icon: const Icon(Icons.check_rounded, size: 16),
+                                        label: const Text('Save Token', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: googleBlue,
+                                          foregroundColor: Colors.white,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
+                                ],
                               ),
-                            ] else ...[
-                              Text(
-                                'Token configured: ${_savedToken!.length > 10 ? '${_savedToken!.substring(0, 6)}••••••••${_savedToken!.substring(_savedToken!.length - 4)}' : '••••••••'}',
-                                style: const TextStyle(fontSize: 12, color: googleTextSecondary, fontFamily: 'monospace'),
-                              ),
-                            ],
-                          ],
-                        ),
                       ),
 
                       const SizedBox(height: 20),
@@ -453,37 +503,36 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
 
                       // Action 1: Download & Sync Master nyro.db
                       _buildSyncCard(
-                        icon: Icons.cloud_download_outlined,
+                        icon: Icons.cloud_download_rounded,
                         iconColor: googleBlue,
                         title: 'Sync Master Database (nyro.db)',
                         subtitle:
                             'Download updated lectures, timetable dates, and quizzes from Hugging Face bucket (King758/gate2027-nyro).',
                         actions: [
-                          ElevatedButton.icon(
+                          FilledButton.icon(
                             onPressed: (_isSyncing || !hasToken)
                                 ? null
                                 : () => _performSyncCloudMaster(smartMerge: true),
                             icon: const Icon(Icons.merge_type_rounded, size: 16),
                             label: const Text('Smart Merge (Safe)'),
-                            style: ElevatedButton.styleFrom(
+                            style: FilledButton.styleFrom(
                               backgroundColor: googleBlue,
                               foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           OutlinedButton(
                             onPressed: (_isSyncing || !hasToken)
                                 ? null
                                 : () => _performSyncCloudMaster(smartMerge: false),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: googleTextSecondary,
-                              side: const BorderSide(color: googleBorder),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              textStyle: const TextStyle(fontSize: 12),
+                              side: const BorderSide(color: Color(0xFFDADCE0)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                             ),
                             child: const Text('Full Overwrite'),
                           ),
@@ -494,22 +543,22 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
 
                       // Action 2: Upload Android DB to Hub
                       _buildSyncCard(
-                        icon: Icons.cloud_upload_outlined,
-                        iconColor: googleGreen,
+                        icon: Icons.cloud_upload_rounded,
+                        iconColor: const Color(0xFF1E8E3E),
                         title: 'Upload Android DB to Hub',
                         subtitle:
                             'Upload your current study ticks, completed checkboxes, mistake notebook, and custom reminders to King758/nyro-android-data.',
                         actions: [
-                          ElevatedButton.icon(
+                          FilledButton.icon(
                             onPressed: (_isSyncing || !hasToken) ? null : _performUploadAndroidDb,
-                            icon: const Icon(Icons.upload_file_rounded, size: 16),
+                            icon: const Icon(Icons.cloud_upload_rounded, size: 16),
                             label: const Text('Upload to Hub'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: googleGreen,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E8E3E),
                               foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                             ),
                           ),
                         ],
@@ -519,7 +568,7 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
 
                       // Action 3: Restore Android DB from Hub
                       _buildSyncCard(
-                        icon: Icons.restore_rounded,
+                        icon: Icons.settings_backup_restore_rounded,
                         iconColor: googleAmber,
                         title: 'Restore Android DB from Hub',
                         subtitle:
@@ -531,10 +580,10 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
                             label: const Text('Download & Restore'),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: googleTextPrimary,
-                              side: const BorderSide(color: googleBorder),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                              side: const BorderSide(color: Color(0xFFDADCE0)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                             ),
                           ),
                         ],
@@ -555,11 +604,11 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
     required List<Widget> actions,
   }) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: googleBorder),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE0E2EC)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -568,10 +617,11 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
                   color: iconColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon, color: iconColor, size: 20),
               ),
@@ -594,7 +644,7 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
                       style: const TextStyle(
                         fontSize: 12,
                         color: googleTextSecondary,
-                        height: 1.3,
+                        height: 1.35,
                       ),
                     ),
                   ],
@@ -602,10 +652,10 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 10,
+            runSpacing: 10,
             children: actions,
           ),
         ],

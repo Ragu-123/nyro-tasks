@@ -241,6 +241,7 @@ class _TodayTabState extends State<TodayTab> {
 
     return ListView(
       controller: widget.scrollController,
+      physics: const ClampingScrollPhysics(),
       padding: EdgeInsets.zero,
       children: [
         // Minimal Google Tasks Date Header
@@ -392,15 +393,13 @@ class _TodayTabState extends State<TodayTab> {
         ),
         const Divider(height: 1, thickness: 1, color: googleHairline),
 
-        // 3. Carousel View using AnimatedSize & IndexedStack (preserves scroll and layout smoothly)
-        IndexedStack(
-          index: _selectedPageIndex,
-          children: [
-            _buildScheduleView(),
-            _buildRevisitsView(),
-            _buildQuizzesView(),
-          ],
-        ),
+        // 3. Tab content rendered dynamically based on selected index
+        if (_selectedPageIndex == 0)
+          _buildScheduleView()
+        else if (_selectedPageIndex == 1)
+          _buildRevisitsView()
+        else
+          _buildQuizzesView(),
       ],
     );
   }
@@ -563,7 +562,7 @@ class _TodayTabState extends State<TodayTab> {
             if (_isCompletedExpanded)
               ...completed.map((lec) => _buildTaskRow(lec, isCompleted: true)),
           ],
-          const SizedBox(height: 80),
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -779,7 +778,7 @@ class _TodayTabState extends State<TodayTab> {
               );
             }),
           ],
-          const SizedBox(height: 80),
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -887,7 +886,7 @@ class _TodayTabState extends State<TodayTab> {
               );
             }),
           ],
-          const SizedBox(height: 80),
+          const SizedBox(height: 16),
         ],
       ),
     );
