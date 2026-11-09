@@ -1,0 +1,925 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:tasks/data/database_service.dart';
+import 'package:tasks/pages/settings/schema_guide_page.dart';
+import 'package:tasks/services/app_update_service.dart';
+import 'package:tasks/services/cloud_sync_service.dart';
+import 'package:tasks/services/desktop_log_server_service.dart';
+import 'package:tasks/utils/theme.dart';
+import 'package:tasks/utils/url_helper.dart';
+import 'package:tasks/widgets/top_banner_notification.dart';
+
+class SettingsPage extends StatefulWidget {
+  final String? initialSection;
+
+  const SettingsPage({Key? key, this.initialSection}) : super(key: key);
+
+  @override
+  _SettingsPageState createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  // Cloud Sync
+  final _tokenController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _repoController = TextEditingController();
+  final _bucketController = TextEditingController();
+  bool _isTestingCloud = false;
+
+  // Log Server
+  bool _serverRunning = false;
+  String? _serverUrl;
+  bool _autoStartServer = false;
+
+  // App Updates
+  bool _autoCheckUpdates = true;
+  bool _isCheckingUpdates = false;
+
+  // Alerts
+  bool _morningBrief = true;
+  String _morningBriefTime = '05:00';
+  bool _revisitAlerts = true;
+  bool _backlogShield = true;
+  String _shieldTime = '21:30';
+
+  // DB Stats
+  int _lectureCount = 0;
+  int _revisitCount = 0;
+  int _quizCount = 0;
+  int _mistakeCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAllSettings();
+  }
+
+  @override
+  void dispose() {
+    _tokenController.dispose();
+    _usernameController.dispose();
+    _repoController.dispose();
+    _bucketController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAllSettings() async {
+    // Cloud
+    _tokenController.text = (await DatabaseService.instance.getHfToken()) ?? '';
+    _usernameController.text = (await DatabaseService.instance.getHfUsername()) ?? '';
+    _repoController.text = (await DatabaseService.instance.getHfRepo()) ?? 'nyro-android-data';
+    _bucketController.text = (await DatabaseService.instance.getHfBucket()) ?? 'King758/gate2027-nyro';
+
+    // Server
+    _serverRunning = DesktopLogServerService.instance.isRunning;
+    _serverUrl = DesktopLogServerService.instance.serverUrl;
+    _autoStartServer = await DatabaseService.instance.getAutoStartServer();
+
+    // Updates
+    _autoCheckUpdates = await DatabaseService.instance.getAutoCheckUpdates();
+
+    // Alerts
+    final alerts = await DatabaseService.instance.getAlertSettings();
+    _morningBrief = alerts['morning_brief'] == 1;
+    _morningBriefTime = alerts['morning_brief_time'] ?? '05:00';
+    _revisitAlerts = alerts['revisit_alerts'] == 1;
+    _backlogShield = alerts['backlog_shield'] == 1;
+    _shieldTime = alerts['shield_time'] ?? '21:30';
+
+    // DB stats
+    final db = await DatabaseService.instance.database;
+    final lecs = (await db.rawQuery('SELECT COUNT(*) as cnt FROM lectures')).first['cnt'] as int? ?? 0;
+    final revs = (await db.rawQuery('SELECT COUNT(*) as cnt FROM revisit_items')).first['cnt'] as int? ?? 0;
+    final qzs = (await db.rawQuery('SELECT COUNT(*) as cnt FROM quiz_items')).first['cnt'] as int? ?? 0;
+    final msts = (await db.rawQuery('SELECT COUNT(*) as cnt FROM mistake_records')).first['cnt'] as int? ?? 0;
+
+    if (mounted) {
+      setState(() {
+        _lectureCount = lecs;
+        _revisitCount = revs;
+        _quizCount = qzs;
+        _mistakeCount = msts;
+      });
+    }
+  }
+
+  // --- Cloud Actions ---
+
+  Future<void> _saveCloudSettings() async {
+    await DatabaseService.instance.setHfToken(_tokenController.text.trim());
+    await DatabaseService.instance.setHfUsername(_usernameController.text.trim());
+    await DatabaseService.instance.setHfRepo(_repoController.text.trim());
+    await DatabaseService.instance.setHfBucket(_bucketController.text.trim());
+
+    TopBanner.show(
+      context,
+      title: 'Settings Saved',
+      message: 'Cloud Sync preferences updated.',
+      icon: Icons.check_circle_outline_rounded,
+      color: googleGreen,
+    );
+  }
+
+  Future<void> _testCloudConnection() async {
+    final token = _tokenController.text.trim();
+    if (token.isEmpty) {
+      TopBanner.show(
+        context,
+        title: 'Empty Token',
+        message: 'Please enter a write token to test connection.',
+        icon: Icons.warning_amber_rounded,
+        color: googleRed,
+      );
+      return;
+    }
+
+    setState(() => _isTestingCloud = true);
+    final user = await CloudSyncService.instance.whoAmI(token);
+    setState(() => _isTestingCloud = false);
+
+    if (user != null) {
+      if (_usernameController.text.trim().isEmpty) {
+        setState(() => _usernameController.text = user);
+        await DatabaseService.instance.setHfUsername(user);
+      }
+      TopBanner.show(
+        context,
+        title: 'Connection Succeeded',
+        message: 'Authenticated as @$user on Hugging Face.',
+        icon: Icons.check_circle_outline_rounded,
+        color: googleGreen,
+      );
+    } else {
+      TopBanner.show(
+        context,
+        title: 'Authentication Failed',
+        message: 'Invalid token or network error. Please check your token.',
+        icon: Icons.error_outline_rounded,
+        color: googleRed,
+      );
+    }
+  }
+
+  // --- Server Actions ---
+
+  Future<void> _toggleLogServer(bool enable) async {
+    if (enable) {
+      final url = await DesktopLogServerService.instance.startServer();
+      setState(() {
+        _serverRunning = true;
+        _serverUrl = url;
+      });
+      TopBanner.show(
+        context,
+        title: 'Log Server Running',
+        message: 'Visit $url on your laptop.',
+        icon: Icons.laptop_chromebook_rounded,
+        color: googleGreen,
+      );
+    } else {
+      await DesktopLogServerService.instance.stopServer();
+      setState(() {
+        _serverRunning = false;
+        _serverUrl = null;
+      });
+      TopBanner.show(
+        context,
+        title: 'Log Server Stopped',
+        message: 'Server has been shut down.',
+        icon: Icons.power_settings_new_rounded,
+        color: googleTextSecondary,
+      );
+    }
+  }
+
+  // --- In-App Updates Actions ---
+
+  Future<void> _checkForUpdates() async {
+    setState(() => _isCheckingUpdates = true);
+
+    try {
+      final release = await AppUpdateService().checkForUpdate();
+      setState(() => _isCheckingUpdates = false);
+
+      if (release != null && release.isNewerThan(AppUpdateService.currentVersion)) {
+        _showUpdateDialog(release);
+      } else {
+        TopBanner.show(
+          context,
+          title: 'Up to Date',
+          message: 'You are on the latest version (v${AppUpdateService.currentVersion}).',
+          icon: Icons.verified_rounded,
+          color: googleGreen,
+        );
+      }
+    } catch (e) {
+      setState(() => _isCheckingUpdates = false);
+      TopBanner.show(
+        context,
+        title: 'Update Check Error',
+        message: e.toString().replaceAll('Exception: ', ''),
+        icon: Icons.sync_problem_rounded,
+        color: googleRed,
+      );
+    }
+  }
+
+  void _showUpdateDialog(AppReleaseInfo release) {
+    bool isDownloading = false;
+    double downloadProgress = 0.0;
+    String downloadText = '';
+    String? downloadedFilePath;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE0E2EC),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: googleGreen.withOpacity(0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.system_update_rounded, color: googleGreen, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Update Available: ${release.tagName}',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                            ),
+                            Text(
+                              'Size: ${release.sizeDisplay}',
+                              style: const TextStyle(fontSize: 12, color: googleTextSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Release Notes:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Container(
+                    maxHeight: 140,
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFD),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: googleHairline),
+                    ),
+                    child: SingleChildScrollView(
+                      child: Text(
+                        release.body,
+                        style: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.35),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  if (isDownloading) ...[
+                    LinearProgressIndicator(value: downloadProgress, color: googleBlue, backgroundColor: googleHairline),
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        downloadText,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: googleTextSecondary),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: ElevatedButton(
+                      onPressed: isDownloading
+                          ? null
+                          : () {
+                              if (downloadedFilePath != null) {
+                                AppUpdateService().installApk(downloadedFilePath!);
+                                return;
+                              }
+
+                              setSheetState(() {
+                                isDownloading = true;
+                                downloadText = 'Starting download...';
+                              });
+
+                              AppUpdateService().downloadAndTrack(
+                                release.apkDownloadUrl,
+                                onComplete: (filePath) {
+                                  setSheetState(() {
+                                    isDownloading = false;
+                                    downloadedFilePath = filePath;
+                                    downloadText = 'Download complete!';
+                                  });
+                                  AppUpdateService().installApk(filePath);
+                                },
+                              ).listen((prog) {
+                                setSheetState(() {
+                                  downloadProgress = prog.progress;
+                                  downloadText = '${prog.receivedDisplay} / ${prog.totalDisplay} (${prog.percentInt}%)';
+                                });
+                              });
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: googleBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(
+                        downloadedFilePath != null ? 'Install Update Now' : (isDownloading ? 'Downloading...' : 'Download & Install Update'),
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // --- Alert Settings Actions ---
+
+  Future<void> _saveAlertSettings() async {
+    await DatabaseService.instance.updateAlertSettings(
+      morningBrief: _morningBrief,
+      revisitAlerts: _revisitAlerts,
+      backlogShield: _backlogShield,
+      morningBriefTime: _morningBriefTime,
+      shieldTime: _shieldTime,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: const Text(
+          'Settings',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: googleTextPrimary),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: googleTextPrimary),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        children: [
+          // 1. Cloud Sync Settings
+          _buildCategoryHeader('CLOUD SYNC & HUGGING FACE', Icons.cloud_sync_outlined),
+          _buildCloudSyncSection(),
+          const SizedBox(height: 20),
+
+          // 2. Laptop Log Server
+          _buildCategoryHeader('LAPTOP LOG SERVER (DESKTOP CONNECT)', Icons.laptop_chromebook_rounded),
+          _buildLogServerSection(),
+          const SizedBox(height: 20),
+
+          // 3. In-App Updates
+          _buildCategoryHeader('IN-APP UPDATES', Icons.system_update_rounded),
+          _buildUpdatesSection(),
+          const SizedBox(height: 20),
+
+          // 4. Notifications & Routine Alerts
+          _buildCategoryHeader('NOTIFICATIONS & ROUTINE ALERTS', Icons.notifications_none_rounded),
+          _buildAlertsSection(),
+          const SizedBox(height: 20),
+
+          // 5. Database & Schema Notes
+          _buildCategoryHeader('DATABASE & MASS IMPORT GUIDE', Icons.storage_rounded),
+          _buildDatabaseSection(),
+          const SizedBox(height: 20),
+
+          // 6. About App
+          _buildCategoryHeader('ABOUT', Icons.info_outline_rounded),
+          _buildAboutSection(),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryHeader(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: googleBlue),
+          const SizedBox(width: 6),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardContainer({required List<Widget> children}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: googleHairline),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
+    );
+  }
+
+  // --- Cloud Sync Section ---
+  Widget _buildCloudSyncSection() {
+    return _buildCardContainer(
+      children: [
+        const Text('Hugging Face Write Token', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _tokenController,
+          obscureText: true,
+          decoration: InputDecoration(
+            hintText: 'hf_xxxxxxxxxxxxxxxxxxxxxxxx',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        const Text('Hugging Face Username', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _usernameController,
+          decoration: InputDecoration(
+            hintText: 'e.g. King758',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        const Text('Dataset Repo Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _repoController,
+          decoration: InputDecoration(
+            hintText: 'nyro-android-data',
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _isTestingCloud ? null : _testCloudConnection,
+                icon: _isTestingCloud
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.wifi_tethering_rounded, size: 16),
+                label: const Text('Test Token'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: googleBlue,
+                  side: const BorderSide(color: googleBlue),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _saveCloudSettings,
+                icon: const Icon(Icons.save_rounded, size: 16),
+                label: const Text('Save Settings'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: googleBlue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Log Server Section ---
+  Widget _buildLogServerSection() {
+    return _buildCardContainer(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Local HTTP Server', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                Text(
+                  _serverRunning ? '🟢 Running on port 8080' : '🔴 Server stopped',
+                  style: TextStyle(fontSize: 12, color: _serverRunning ? googleGreen : googleTextSecondary),
+                ),
+              ],
+            ),
+            Switch(
+              value: _serverRunning,
+              activeColor: googleBlue,
+              onChanged: (val) => _toggleLogServer(val),
+            ),
+          ],
+        ),
+        if (_serverRunning && _serverUrl != null) ...[
+          const Divider(height: 20, thickness: 1, color: googleHairline),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF0FDF4),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: googleGreen.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.link_rounded, color: googleGreen, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SelectableText(
+                    _serverUrl!,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
+                  tooltip: 'Copy URL',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: _serverUrl!));
+                    TopBanner.show(
+                      context,
+                      title: 'URL Copied',
+                      message: 'Copied ${_serverUrl!} to clipboard.',
+                      icon: Icons.check_circle_outline_rounded,
+                      color: googleGreen,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Open this URL in Chrome/Edge on your laptop to paste test screenshots and log mistakes.',
+            style: TextStyle(fontSize: 11, color: googleTextSecondary),
+          ),
+        ],
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Auto-start server on app launch', style: TextStyle(fontSize: 13)),
+            Switch(
+              value: _autoStartServer,
+              activeColor: googleBlue,
+              onChanged: (val) async {
+                setState(() => _autoStartServer = val);
+                await DatabaseService.instance.setAutoStartServer(val);
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- In-App Updates Section ---
+  Widget _buildUpdatesSection() {
+    return _buildCardContainer(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Current Version: v${AppUpdateService.currentVersion}',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const Text('Repository: Ragu-123/nyro-tasks', style: TextStyle(fontSize: 12, color: googleTextSecondary)),
+              ],
+            ),
+            ElevatedButton(
+              onPressed: _isCheckingUpdates ? null : _checkForUpdates,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: googleBlue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: _isCheckingUpdates
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('Check Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Check for updates on app launch', style: TextStyle(fontSize: 13)),
+            Switch(
+              value: _autoCheckUpdates,
+              activeColor: googleBlue,
+              onChanged: (val) async {
+                setState(() => _autoCheckUpdates = val);
+                await DatabaseService.instance.setAutoCheckUpdates(val);
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Routine Alerts Section ---
+  Widget _buildAlertsSection() {
+    return _buildCardContainer(
+      children: [
+        // Morning Brief
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Morning Study Brief', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                Text('Scheduled at $_morningBriefTime AM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+              ],
+            ),
+            Switch(
+              value: _morningBrief,
+              activeColor: googleBlue,
+              onChanged: (val) {
+                setState(() => _morningBrief = val);
+                _saveAlertSettings();
+              },
+            ),
+          ],
+        ),
+        const Divider(height: 16, thickness: 1, color: googleHairline),
+
+        // Spaced Recall Alerts
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Spaced Recall Checkpoints', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                Text('Day 1, Day 4, Day 7 due reminders', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+              ],
+            ),
+            Switch(
+              value: _revisitAlerts,
+              activeColor: googleBlue,
+              onChanged: (val) {
+                setState(() => _revisitAlerts = val);
+                _saveAlertSettings();
+              },
+            ),
+          ],
+        ),
+        const Divider(height: 16, thickness: 1, color: googleHairline),
+
+        // Evening Backlog Shield
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Evening Backlog Shield', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                Text('Scheduled at $_shieldTime PM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+              ],
+            ),
+            Switch(
+              value: _backlogShield,
+              activeColor: googleBlue,
+              onChanged: (val) {
+                setState(() => _backlogShield = val);
+                _saveAlertSettings();
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Database Section ---
+  Widget _buildDatabaseSection() {
+    return _buildCardContainer(
+      children: [
+        // Schema Guide Tile
+        InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const DatabaseSchemaGuidePage()),
+            );
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F0FE),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.menu_book_rounded, color: googleBlue, size: 20),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Database Schema Notes ↗', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleBlue)),
+                      Text('Table structures and JSON format for mass preparing DB', style: TextStyle(fontSize: 11, color: googleTextPrimary)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: googleBlue),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        const Text('Local Record Counts:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _buildStatChip('Lectures', _lectureCount),
+            _buildStatChip('Revisits', _revisitCount),
+            _buildStatChip('Quizzes', _quizCount),
+            _buildStatChip('Mistakes', _mistakeCount),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () async {
+                  await DatabaseService.instance.loadSampleCurriculum();
+                  await _loadAllSettings();
+                  TopBanner.show(
+                    context,
+                    title: 'Curriculum Loaded',
+                    message: 'Prepackaged GATE 2027 curriculum imported.',
+                    icon: Icons.check_circle_outline_rounded,
+                    color: googleGreen,
+                  );
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: googleBlue,
+                  side: const BorderSide(color: googleBlue),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Text('Load Sample DB', style: TextStyle(fontSize: 12)),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      title: const Text('Clear All Timetable Data?'),
+                      content: const Text('This will delete all lectures, revisits, and quizzes on this device.'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(backgroundColor: googleRed, foregroundColor: Colors.white),
+                          child: const Text('Clear All'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    await DatabaseService.instance.clearAllTimetableData();
+                    await _loadAllSettings();
+                    TopBanner.show(
+                      context,
+                      title: 'Timetable Cleared',
+                      message: 'All schedule and quiz items removed.',
+                      icon: Icons.delete_outline_rounded,
+                      color: googleRed,
+                    );
+                  }
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: googleRed,
+                  side: const BorderSide(color: googleRed),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Text('Clear Timetable', style: TextStyle(fontSize: 12)),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatChip(String label, int count) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F3F4),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Text('$count', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: googleTextPrimary)),
+          Text(label, style: const TextStyle(fontSize: 10, color: googleTextSecondary)),
+        ],
+      ),
+    );
+  }
+
+  // --- About Section ---
+  Widget _buildAboutSection() {
+    return _buildCardContainer(
+      children: [
+        const Text('NYRO Tasks for GATE 2027', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        const Text(
+          'A Google Tasks inspired study pacing, spaced retention, and blunder inoculation copilot for GATE aspirants.',
+          style: TextStyle(fontSize: 12, color: googleTextSecondary, height: 1.35),
+        ),
+        const SizedBox(height: 10),
+        InkWell(
+          onTap: () => openExternalUrl('https://github.com/Ragu-123/nyro-tasks'),
+          child: const Row(
+            children: [
+              Icon(Icons.code_rounded, size: 16, color: googleBlue),
+              SizedBox(width: 6),
+              Text(
+                'https://github.com/Ragu-123/nyro-tasks ↗',
+                style: TextStyle(fontSize: 12, color: googleBlue, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}

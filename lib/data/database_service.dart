@@ -25,34 +25,283 @@ class DatabaseService {
   Future<Database> _initDatabase() async {
     final dbPath = await getDbPath();
 
-    // If database does not exist, extract from asset
-    if (!await File(dbPath).exists()) {
-      ByteData data = await rootBundle.load('assets/data/nyro.db');
-      List<int> bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-      await File(dbPath).writeAsBytes(bytes, flush: true);
-    }
+    final db = await openDatabase(
+      dbPath,
+      version: 1,
+      onCreate: (db, version) async {
+        await _createAllTables(db);
+      },
+    );
 
-    final db = await openDatabase(dbPath);
-    await db.execute('CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT)');
+    // Ensure all tables and config keys exist on upgrade or existing db
+    await _createAllTables(db);
     return db;
   }
 
-  // --- App Config & Hugging Face Token ---
+  Future<void> _createAllTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS timetables (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        title VARCHAR, 
+        subject VARCHAR, 
+        created_at DATETIME
+      )
+    ''');
 
-  Future<String?> getHfToken() async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS daily_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        date_str VARCHAR, 
+        target_hours FLOAT, 
+        watched_hours FLOAT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS timetable_proposals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        proposal_type VARCHAR, 
+        title VARCHAR, 
+        summary VARCHAR, 
+        changes_payload VARCHAR, 
+        status VARCHAR, 
+        created_at DATETIME
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS alert_settings (
+        id INTEGER PRIMARY KEY, 
+        morning_brief BOOLEAN, 
+        morning_brief_time VARCHAR, 
+        revisit_alerts BOOLEAN, 
+        backlog_shield BOOLEAN, 
+        shield_time VARCHAR, 
+        last_morning_brief_date VARCHAR
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS custom_reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        text VARCHAR NOT NULL, 
+        remind_at DATETIME NOT NULL, 
+        status VARCHAR, 
+        created_at DATETIME, 
+        anchor_id INTEGER, 
+        relative_id INTEGER, 
+        anchor_type TEXT DEFAULT 'none', 
+        offset_days INTEGER DEFAULT 0, 
+        offset_time_str TEXT DEFAULT '08:00'
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lectures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        timetable_id INTEGER, 
+        date_str VARCHAR, 
+        topic VARCHAR, 
+        details VARCHAR, 
+        duration_hours FLOAT, 
+        session_block VARCHAR, 
+        status VARCHAR, 
+        completed_at DATETIME, 
+        anchor_id INTEGER, 
+        relative_id INTEGER, 
+        offset_days INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS revisit_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        lecture_id INTEGER, 
+        topic VARCHAR, 
+        stage VARCHAR, 
+        duration_mins INTEGER, 
+        due_date VARCHAR, 
+        status VARCHAR, 
+        completed_at DATETIME, 
+        anchor_id INTEGER, 
+        relative_id INTEGER, 
+        offset_days INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS quiz_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        quiz_type VARCHAR, 
+        title VARCHAR, 
+        week_number INTEGER, 
+        date_str VARCHAR, 
+        duration_mins INTEGER, 
+        total_questions INTEGER, 
+        total_marks INTEGER, 
+        syllabus_topics VARCHAR, 
+        status VARCHAR, 
+        score FLOAT, 
+        created_at DATETIME, 
+        subject VARCHAR, 
+        module_name VARCHAR, 
+        action_url VARCHAR, 
+        exam_id INTEGER, 
+        is_premium BOOLEAN, 
+        notes VARCHAR, 
+        anchor_id INTEGER, 
+        relative_id INTEGER, 
+        offset_days INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS mistake_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        subject VARCHAR, 
+        topic VARCHAR, 
+        question_text VARCHAR, 
+        wrong_answer VARCHAR, 
+        correct_answer VARCHAR, 
+        mistake_reason VARCHAR, 
+        key_takeaway VARCHAR, 
+        quiz_title VARCHAR, 
+        severity VARCHAR, 
+        status VARCHAR, 
+        created_at DATETIME, 
+        resolved_at DATETIME
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS custom_subjects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS inapp_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        message TEXT,
+        type TEXT,
+        created_at DATETIME
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_config (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    ''');
+
+    await db.execute('''
+      INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time)
+      VALUES (1, 1, '05:00', 1, 1, '21:30')
+    ''');
+  }
+
+  // --- App Config & Hugging Face Tokens / Settings ---
+
+  Future<String?> getConfig(String key) async {
     final db = await database;
-    final res = await db.query('app_config', where: 'key = ?', whereArgs: ['hf_token'], limit: 1);
+    final res = await db.query('app_config', where: 'key = ?', whereArgs: [key], limit: 1);
     if (res.isNotEmpty) return res.first['value'] as String?;
     return null;
   }
 
-  Future<void> setHfToken(String token) async {
+  Future<void> setConfig(String key, String value) async {
     final db = await database;
     await db.insert(
       'app_config',
-      {'key': 'hf_token', 'value': token.trim()},
+      {'key': key, 'value': value.trim()},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  Future<String?> getHfToken() => getConfig('hf_token');
+  Future<void> setHfToken(String token) => setConfig('hf_token', token);
+
+  Future<String?> getHfUsername() => getConfig('hf_username');
+  Future<void> setHfUsername(String username) => setConfig('hf_username', username);
+
+  Future<String?> getHfRepo() => getConfig('hf_repo');
+  Future<void> setHfRepo(String repo) => setConfig('hf_repo', repo);
+
+  Future<String?> getHfBucket() => getConfig('hf_bucket');
+  Future<void> setHfBucket(String bucket) => setConfig('hf_bucket', bucket);
+
+  Future<bool> getAutoCheckUpdates() async {
+    final val = await getConfig('auto_check_updates');
+    return val != '0'; // default true
+  }
+
+  Future<void> setAutoCheckUpdates(bool enabled) => setConfig('auto_check_updates', enabled ? '1' : '0');
+
+  Future<bool> getAutoStartServer() async {
+    final val = await getConfig('auto_start_server');
+    return val == '1'; // default false
+  }
+
+  Future<void> setAutoStartServer(bool enabled) => setConfig('auto_start_server', enabled ? '1' : '0');
+
+  Future<bool> hasAnyScheduledLectures() async {
+    final db = await database;
+    final res = await db.rawQuery('SELECT COUNT(*) as cnt FROM lectures');
+    final cnt = (res.first['cnt'] as num?)?.toInt() ?? 0;
+    return cnt > 0;
+  }
+
+  // --- Load Sample Curriculum (from asset nyro.db) ---
+  Future<void> loadSampleCurriculum() async {
+    final tempDir = await getTemporaryDirectory();
+    final tempPath = p.join(tempDir.path, 'asset_sample_nyro.db');
+    final ByteData data = await rootBundle.load('assets/data/nyro.db');
+    final List<int> bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    await File(tempPath).writeAsBytes(bytes, flush: true);
+
+    await smartMergeDatabase(tempPath);
+    try {
+      await File(tempPath).delete();
+    } catch (_) {}
+  }
+
+  // --- Clear Timetable / Reset to Clean State ---
+  Future<void> clearAllTimetableData() async {
+    final db = await database;
+    await db.delete('lectures');
+    await db.delete('revisit_items');
+    await db.delete('quiz_items');
+    await db.delete('timetables');
+    await db.delete('daily_sessions');
+  }
+
+  // --- In-App Notifications History ---
+
+  Future<int> addInAppNotification({
+    required String title,
+    required String message,
+    String type = 'INFO',
+  }) async {
+    final db = await database;
+    return await db.insert('inapp_notifications', {
+      'title': title,
+      'message': message,
+      'type': type,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getInAppNotifications({int limit = 40}) async {
+    final db = await database;
+    return await db.query('inapp_notifications', orderBy: 'id DESC', limit: limit);
+  }
+
+  Future<void> clearInAppNotifications() async {
+    final db = await database;
+    await db.delete('inapp_notifications');
   }
 
   // --- Today's Pacing & Lectures ---
@@ -71,7 +320,7 @@ class DatabaseService {
       limit: 1,
     );
 
-    // 2. Query today's lectures (exact date match to prevent multi-day substring overcounting)
+    // 2. Query today's lectures
     final lecs = await db.rawQuery(
       'SELECT * FROM lectures WHERE (lower(trim(date_str)) = lower(?) OR lower(trim(date_str)) = lower(?) OR date_str = ?)',
       [dayPadded, dayUnpadded, isoDate],
@@ -142,7 +391,130 @@ class DatabaseService {
     }
   }
 
-  // --- Revisits ---
+  // --- Spaced Repetition Formula & Schedule Creation ---
+
+  Future<void> saveCustomSubject(String subject) async {
+    final clean = subject.trim();
+    if (clean.isEmpty || clean == 'All Subjects') return;
+    final db = await database;
+    await db.insert(
+      'custom_subjects',
+      {'name': clean},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  /// Inserts a newly scheduled lecture and automatically generates 5 spaced repetition checkpoints
+  /// as per the Ebbinghaus forgetting curve formula (Day 1, Day 4, Day 7, Day 14, Day 30).
+  Future<int> insertScheduledLecture({
+    required String subject,
+    required String lectureName,
+    required DateTime date,
+    required double durationHours,
+    String? sessionBlock,
+  }) async {
+    final db = await database;
+    final cleanSubj = subject.trim();
+    final cleanName = lectureName.trim();
+    final dateStr = DateFormat('dd MMM yyyy').format(date);
+
+    // Save subject to custom subjects
+    await saveCustomSubject(cleanSubj);
+
+    final lectureTopic = cleanSubj.isNotEmpty ? '$cleanSubj • $cleanName' : cleanName;
+
+    // 1. Insert into lectures
+    final lectureId = await db.insert('lectures', {
+      'date_str': dateStr,
+      'topic': lectureTopic,
+      'details': cleanName,
+      'duration_hours': durationHours,
+      'session_block': sessionBlock ?? 'General Session',
+      'status': 'PENDING',
+      'offset_days': 0,
+    });
+
+    // 2. Automatically generate 5 spaced repetition revisits
+    final intervals = [
+      {'stage': 'Day 1 (24h)', 'offset': 1, 'mins': 20},
+      {'stage': 'Day 4', 'offset': 4, 'mins': 25},
+      {'stage': 'Day 7', 'offset': 7, 'mins': 30},
+      {'stage': 'Day 14', 'offset': 14, 'mins': 30},
+      {'stage': 'Day 30', 'offset': 30, 'mins': 30},
+    ];
+
+    for (final inv in intervals) {
+      final offsetDays = inv['offset'] as int;
+      final dueDate = date.add(Duration(days: offsetDays));
+      final dueDateStr = DateFormat('dd MMM yyyy').format(dueDate);
+
+      await db.insert('revisit_items', {
+        'lecture_id': lectureId,
+        'topic': lectureTopic,
+        'stage': inv['stage'],
+        'duration_mins': inv['mins'],
+        'due_date': dueDateStr,
+        'status': 'DUE',
+        'offset_days': offsetDays,
+      });
+    }
+
+    return lectureId;
+  }
+
+  // --- Quizzes & Tests Creation ---
+
+  Future<int> insertQuiz({
+    required String subject,
+    required String title,
+    required DateTime date,
+    String quizType = 'WEEKLY_QUIZ',
+    int durationMins = 45,
+    int totalMarks = 25,
+    String? syllabusTopics,
+    String? actionUrl,
+  }) async {
+    final db = await database;
+    final cleanSubj = subject.trim();
+    await saveCustomSubject(cleanSubj);
+
+    final dateStr = DateFormat('dd MMM yyyy').format(date);
+
+    return await db.insert('quiz_items', {
+      'quiz_type': quizType,
+      'title': title.trim(),
+      'subject': cleanSubj,
+      'date_str': dateStr,
+      'duration_mins': durationMins,
+      'total_marks': totalMarks,
+      'syllabus_topics': syllabusTopics ?? '',
+      'action_url': actionUrl ?? '',
+      'status': 'PENDING',
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  // --- Custom Revisit Item Creation ---
+
+  Future<int> insertCustomRevisit({
+    required String topic,
+    required String stage,
+    required DateTime dueDate,
+    int durationMins = 25,
+  }) async {
+    final db = await database;
+    final dueDateStr = DateFormat('dd MMM yyyy').format(dueDate);
+
+    return await db.insert('revisit_items', {
+      'topic': topic.trim(),
+      'stage': stage.trim(),
+      'duration_mins': durationMins,
+      'due_date': dueDateStr,
+      'status': 'DUE',
+    });
+  }
+
+  // --- Revisits Queries ---
 
   Future<List<Map<String, dynamic>>> getDueRevisitsForDate(DateTime date) async {
     final db = await database;
@@ -273,8 +645,8 @@ class DatabaseService {
       });
 
       if (matrixMap[subject]!.containsKey(normStage)) {
-        matrixMap[subject]![normStage]![0]++; // total
-        if (isDone) matrixMap[subject]![normStage]![1]++; // done
+        matrixMap[subject]![normStage]![0]++;
+        if (isDone) matrixMap[subject]![normStage]![1]++;
       }
     }
 
@@ -342,15 +714,18 @@ class DatabaseService {
     String? quizTitle,
     required String severity,
   }) async {
+    final cleanSubj = subject.trim();
+    await saveCustomSubject(cleanSubj);
+
     final db = await database;
     return await db.insert('mistake_records', {
-      'subject': subject,
-      'topic': topic,
-      'question_text': questionText,
-      'wrong_answer': wrongAnswer,
-      'correct_answer': correctAnswer,
-      'mistake_reason': mistakeReason,
-      'key_takeaway': keyTakeaway,
+      'subject': cleanSubj,
+      'topic': topic.trim(),
+      'question_text': questionText.trim(),
+      'wrong_answer': wrongAnswer ?? '',
+      'correct_answer': correctAnswer ?? '',
+      'mistake_reason': mistakeReason ?? '',
+      'key_takeaway': keyTakeaway.trim(),
       'quiz_title': quizTitle ?? '',
       'severity': severity.toUpperCase(),
       'status': 'UNRESOLVED',
@@ -402,21 +777,37 @@ class DatabaseService {
     final db = await database;
     final qSubjs = await db.rawQuery('SELECT DISTINCT subject FROM quiz_items WHERE subject IS NOT NULL');
     final mSubjs = await db.rawQuery('SELECT DISTINCT subject FROM mistake_records WHERE subject IS NOT NULL');
+    final cSubjs = await db.rawQuery('SELECT DISTINCT name FROM custom_subjects WHERE name IS NOT NULL');
+    final lSubjs = await db.rawQuery('SELECT DISTINCT topic FROM lectures WHERE topic IS NOT NULL');
     
     final set = <String>{};
     for (var r in qSubjs) {
-      if (r['subject'] != null && r['subject'].toString().trim().isNotEmpty) {
-        set.add(r['subject'].toString().trim());
-      }
+      final s = r['subject']?.toString().trim();
+      if (s != null && s.isNotEmpty) set.add(s);
     }
     for (var r in mSubjs) {
-      if (r['subject'] != null && r['subject'].toString().trim().isNotEmpty) {
-        set.add(r['subject'].toString().trim());
+      final s = r['subject']?.toString().trim();
+      if (s != null && s.isNotEmpty) set.add(s);
+    }
+    for (var r in cSubjs) {
+      final s = r['name']?.toString().trim();
+      if (s != null && s.isNotEmpty) set.add(s);
+    }
+    for (var r in lSubjs) {
+      final top = r['topic']?.toString().trim();
+      if (top != null && top.isNotEmpty) {
+        final s = top.contains('•') ? top.split('•')[0].trim() : top;
+        if (s.isNotEmpty) set.add(s);
       }
     }
 
     final list = set.toList()..sort();
     return ['All Subjects', ...list];
+  }
+
+  Future<List<String>> getOnlySubjectsForDropdown() async {
+    final list = await getAllDistinctSubjects();
+    return list.where((s) => s != 'All Subjects').toList();
   }
 
   Future<Map<String, int>> getSubjectLectureCounts() async {
@@ -507,13 +898,19 @@ class DatabaseService {
     required bool morningBrief,
     required bool revisitAlerts,
     required bool backlogShield,
+    String? morningBriefTime,
+    String? shieldTime,
   }) async {
     final db = await database;
-    await db.update('alert_settings', {
+    final updateData = <String, dynamic>{
       'morning_brief': morningBrief ? 1 : 0,
       'revisit_alerts': revisitAlerts ? 1 : 0,
       'backlog_shield': backlogShield ? 1 : 0,
-    }, where: 'id = ?', whereArgs: [1]);
+    };
+    if (morningBriefTime != null) updateData['morning_brief_time'] = morningBriefTime;
+    if (shieldTime != null) updateData['shield_time'] = shieldTime;
+
+    await db.update('alert_settings', updateData, where: 'id = ?', whereArgs: [1]);
   }
 
   Future<List<Map<String, dynamic>>> getCustomReminders() async {
@@ -540,23 +937,24 @@ class DatabaseService {
 
   Future<void> overwriteDatabase(String newDbPath) async {
     final savedToken = await getHfToken();
+    final savedUsername = await getHfUsername();
+    final savedRepo = await getHfRepo();
     final localPath = await getDbPath();
+
     if (_db != null && _db!.isOpen) {
       await _db!.close();
       _db = null;
     }
+
     final newBytes = await File(newDbPath).readAsBytes();
     await File(localPath).writeAsBytes(newBytes, flush: true);
+
     _db = await openDatabase(localPath);
-    await _db!.execute('''
-      CREATE TABLE IF NOT EXISTS app_config (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      )
-    ''');
-    if (savedToken != null && savedToken.isNotEmpty) {
-      await setHfToken(savedToken);
-    }
+    await _createAllTables(_db!);
+
+    if (savedToken != null && savedToken.isNotEmpty) await setHfToken(savedToken);
+    if (savedUsername != null && savedUsername.isNotEmpty) await setHfUsername(savedUsername);
+    if (savedRepo != null && savedRepo.isNotEmpty) await setHfRepo(savedRepo);
   }
 
   Future<void> smartMergeDatabase(String cloudDbPath) async {
@@ -572,7 +970,6 @@ class DatabaseService {
         if (existing.isEmpty) {
           await localDb.insert('lectures', cl);
         } else {
-          // Update details from cloud, keep local status
           await localDb.update(
             'lectures',
             {

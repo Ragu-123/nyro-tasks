@@ -4,6 +4,7 @@ import 'package:tasks/data/database_service.dart';
 import 'package:tasks/utils/theme.dart';
 import 'package:tasks/utils/url_helper.dart';
 import 'package:tasks/widgets/google_checkbox.dart';
+import 'package:tasks/pages/settings/schema_guide_page.dart';
 
 class TodayTab extends StatefulWidget {
   final DateTime currentDate;
@@ -11,6 +12,9 @@ class TodayTab extends StatefulWidget {
   final ScrollController scrollController;
   final VoidCallback? onJumpToToday;
   final VoidCallback? onOpenTimetable;
+  final VoidCallback? onJumpToDate;
+  final VoidCallback? onOpenScheduleForm;
+  final VoidCallback? onOpenCloudSync;
 
   const TodayTab({
     Key? key,
@@ -19,6 +23,9 @@ class TodayTab extends StatefulWidget {
     required this.scrollController,
     this.onJumpToToday,
     this.onOpenTimetable,
+    this.onJumpToDate,
+    this.onOpenScheduleForm,
+    this.onOpenCloudSync,
   }) : super(key: key);
 
   @override
@@ -284,13 +291,13 @@ class _TodayTabState extends State<TodayTab> {
                         ),
                       ),
                     ),
-                  if (widget.onOpenTimetable != null) ...[
+                  if (widget.onJumpToDate != null || widget.onOpenTimetable != null) ...[
                     const SizedBox(width: 8),
                     IconButton(
                       icon: const Icon(Icons.calendar_month_outlined, size: 20, color: googleBlue),
-                      tooltip: 'Open Timetable',
+                      tooltip: 'Jump to Date',
                       visualDensity: VisualDensity.compact,
-                      onPressed: widget.onOpenTimetable,
+                      onPressed: widget.onJumpToDate ?? widget.onOpenTimetable,
                     ),
                   ],
                 ],
@@ -470,11 +477,83 @@ class _TodayTabState extends State<TodayTab> {
     if (_lectures.isEmpty) {
       return Container(
         color: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
-        child: const Center(
-          child: Text(
-            'No lectures scheduled for this date.',
-            style: TextStyle(fontSize: 14, color: googleTextSecondary),
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF1F3F4),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.calendar_today_outlined, size: 28, color: googleBorder),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'No Lectures Scheduled for this Date',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Tap the "+" button below to add your lecture schedule, or sync your Hugging Face database.',
+                style: TextStyle(fontSize: 12, color: googleTextSecondary, height: 1.4),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const DatabaseSchemaGuidePage()),
+                      );
+                    },
+                    icon: const Icon(Icons.schema_outlined, size: 14),
+                    label: const Text('DB Schema Guide ↗', style: TextStyle(fontSize: 11)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: googleBlue,
+                      side: const BorderSide(color: googleBlue),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  if (widget.onOpenCloudSync != null)
+                    OutlinedButton.icon(
+                      onPressed: widget.onOpenCloudSync,
+                      icon: const Text('🤗', style: TextStyle(fontSize: 12)),
+                      label: const Text('Cloud Sync', style: TextStyle(fontSize: 11)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: googleTextPrimary,
+                        side: const BorderSide(color: googleBorder),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await DatabaseService.instance.loadSampleCurriculum();
+                      await _loadData();
+                      widget.onDataChanged();
+                    },
+                    icon: const Icon(Icons.download_rounded, size: 14),
+                    label: const Text('Load Sample DB', style: TextStyle(fontSize: 11)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: googleGreen,
+                      side: const BorderSide(color: googleGreen),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       );
