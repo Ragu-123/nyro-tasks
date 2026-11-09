@@ -287,7 +287,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   const Text('Release Notes:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   Container(
-                    maxHeight: 140,
+                    constraints: const BoxConstraints(maxHeight: 140),
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
