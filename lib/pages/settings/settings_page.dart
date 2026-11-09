@@ -52,6 +52,12 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _loadAllSettings();
+
+    if (widget.initialSection != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _navigateToSection(widget.initialSection!);
+      });
+    }
   }
 
   @override
@@ -103,6 +109,75 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  void _navigateToSection(String section) {
+    switch (section.toLowerCase()) {
+      case 'cloud':
+        _openSubPage(
+          title: 'Cloud Sync & Hugging Face',
+          icon: Icons.cloud_sync_outlined,
+          builder: (ctx) => _buildCloudSyncDetail(),
+        );
+        break;
+      case 'server':
+        _openSubPage(
+          title: 'Laptop Mistake Log Server',
+          icon: Icons.laptop_chromebook_rounded,
+          builder: (ctx) => _buildLogServerDetail(),
+        );
+        break;
+      case 'updates':
+        _openSubPage(
+          title: 'In-App Updates',
+          icon: Icons.system_update_rounded,
+          builder: (ctx) => _buildUpdatesDetail(),
+        );
+        break;
+      case 'alerts':
+        _openSubPage(
+          title: 'Notifications & Alerts',
+          icon: Icons.notifications_none_rounded,
+          builder: (ctx) => _buildAlertsDetail(),
+        );
+        break;
+      case 'schema':
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const DatabaseSchemaGuidePage()));
+        break;
+      case 'about':
+        _openSubPage(
+          title: 'About & Diagnostics',
+          icon: Icons.info_outline_rounded,
+          builder: (ctx) => _buildAboutDetail(),
+        );
+        break;
+    }
+  }
+
+  void _openSubPage({
+    required String title,
+    required IconData icon,
+    required Widget Function(BuildContext) builder,
+  }) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: const Color(0xFFF8FAFC),
+          appBar: AppBar(
+            title: Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: googleTextPrimary),
+            ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_rounded, color: googleTextPrimary),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          body: builder(context),
+        ),
+      ),
+    ).then((_) => _loadAllSettings());
+  }
+
   // --- Cloud Actions ---
 
   Future<void> _saveCloudSettings() async {
@@ -125,42 +200,54 @@ class _SettingsPageState extends State<SettingsPage> {
     if (token.isEmpty) {
       TopBanner.show(
         context,
-        title: 'Empty Token',
-        message: 'Please enter a write token to test connection.',
+        title: 'Missing Token',
+        message: 'Please paste your Hugging Face write token.',
         icon: Icons.warning_amber_rounded,
-        color: googleRed,
+        color: googleAmber,
       );
       return;
     }
 
     setState(() => _isTestingCloud = true);
-    final user = await CloudSyncService.instance.whoAmI(token);
-    setState(() => _isTestingCloud = false);
 
-    if (user != null) {
-      if (_usernameController.text.trim().isEmpty) {
-        setState(() => _usernameController.text = user);
-        await DatabaseService.instance.setHfUsername(user);
+    try {
+      final user = await CloudSyncService.instance.whoAmI(token);
+      setState(() => _isTestingCloud = false);
+
+      if (user != null && user.isNotEmpty) {
+        if (_usernameController.text.trim().isEmpty) {
+          _usernameController.text = user;
+          await DatabaseService.instance.setHfUsername(user);
+        }
+        TopBanner.show(
+          context,
+          title: 'Connection Verified',
+          message: 'Authenticated as Hugging Face user: $user',
+          icon: Icons.verified_user_rounded,
+          color: googleGreen,
+        );
+      } else {
+        TopBanner.show(
+          context,
+          title: 'Authentication Failed',
+          message: 'Invalid Hugging Face write token.',
+          icon: Icons.error_outline_rounded,
+          color: googleRed,
+        );
       }
+    } catch (e) {
+      setState(() => _isTestingCloud = false);
       TopBanner.show(
         context,
-        title: 'Connection Succeeded',
-        message: 'Authenticated as @$user on Hugging Face.',
-        icon: Icons.check_circle_outline_rounded,
-        color: googleGreen,
-      );
-    } else {
-      TopBanner.show(
-        context,
-        title: 'Authentication Failed',
-        message: 'Invalid token or network error. Please check your token.',
-        icon: Icons.error_outline_rounded,
+        title: 'Error Testing Token',
+        message: e.toString().replaceAll('Exception: ', ''),
+        icon: Icons.sync_problem_rounded,
         color: googleRed,
       );
     }
   }
 
-  // --- Server Actions ---
+  // --- Log Server Actions ---
 
   Future<void> _toggleLogServer(bool enable) async {
     if (enable) {
@@ -171,9 +258,9 @@ class _SettingsPageState extends State<SettingsPage> {
       });
       TopBanner.show(
         context,
-        title: 'Log Server Running',
-        message: 'Visit $url on your laptop.',
-        icon: Icons.laptop_chromebook_rounded,
+        title: 'Laptop Server Online',
+        message: 'Connect laptop to $url',
+        icon: Icons.wifi_tethering_rounded,
         color: googleGreen,
       );
     } else {
@@ -184,9 +271,9 @@ class _SettingsPageState extends State<SettingsPage> {
       });
       TopBanner.show(
         context,
-        title: 'Log Server Stopped',
-        message: 'Server has been shut down.',
-        icon: Icons.power_settings_new_rounded,
+        title: 'Server Stopped',
+        message: 'Desktop connection closed.',
+        icon: Icons.portable_wifi_off_rounded,
         color: googleTextSecondary,
       );
     }
@@ -248,24 +335,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     child: Container(
                       width: 36,
                       height: 4,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE0E2EC),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                      decoration: BoxDecoration(color: const Color(0xFFE0E2EC), borderRadius: BorderRadius.circular(2)),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 18),
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: googleGreen.withOpacity(0.12),
-                          shape: BoxShape.circle,
-                        ),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(color: googleGreen.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
                         child: const Icon(Icons.system_update_rounded, color: googleGreen, size: 24),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -275,7 +356,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
                             ),
                             Text(
-                              'Size: ${release.sizeDisplay}',
+                              'Size: ${release.sizeDisplay} • Current: v${AppUpdateService.currentVersion}',
                               style: const TextStyle(fontSize: 12, color: googleTextSecondary),
                             ),
                           ],
@@ -284,11 +365,9 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  const Text('Release Notes:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
                   Container(
-                    constraints: const BoxConstraints(maxHeight: 140),
                     width: double.infinity,
+                    constraints: const BoxConstraints(maxHeight: 140),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF8FAFD),
@@ -297,25 +376,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     child: SingleChildScrollView(
                       child: Text(
-                        release.body,
+                        release.body.trim().isEmpty ? 'Performance improvements and bug fixes.' : release.body,
                         style: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.35),
                       ),
                     ),
                   ),
                   const SizedBox(height: 20),
-
                   if (isDownloading) ...[
-                    LinearProgressIndicator(value: downloadProgress, color: googleBlue, backgroundColor: googleHairline),
+                    LinearProgressIndicator(value: downloadProgress > 0 ? downloadProgress : null, color: googleBlue),
                     const SizedBox(height: 8),
-                    Center(
-                      child: Text(
-                        downloadText,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: googleTextSecondary),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
+                    Center(child: Text(downloadText, style: const TextStyle(fontSize: 11, color: googleTextSecondary))),
+                    const SizedBox(height: 16),
                   ],
-
                   SizedBox(
                     width: double.infinity,
                     height: 46,
@@ -382,8 +454,20 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  // ==========================================
+  // MAIN SETTINGS VIEW: CATEGORIZED TILES
+  // ==========================================
+
   @override
   Widget build(BuildContext context) {
+    final cloudRepoSubtitle = _repoController.text.isNotEmpty
+        ? 'Repo: ${_repoController.text}'
+        : (_tokenController.text.isNotEmpty ? 'Token configured' : 'Not configured');
+
+    final serverSubtitle = _serverRunning
+        ? '🟢 Running on ${_serverUrl ?? "port 8080"}'
+        : 'Connect laptop to log exam blunders';
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
@@ -399,53 +483,594 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
-          // 1. Cloud Sync Settings
-          _buildCategoryHeader('CLOUD SYNC & HUGGING FACE', Icons.cloud_sync_outlined),
-          _buildCloudSyncSection(),
-          const SizedBox(height: 20),
+          // Header Card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [googleBlue.withOpacity(0.08), googleBlue.withOpacity(0.02)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: googleBlue.withOpacity(0.15)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: googleBlue.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.tune_rounded, color: googleBlue, size: 24),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'NYRO App Preferences',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Cloud tokens, LAN log server, and routine alerts',
+                        style: TextStyle(fontSize: 11, color: googleTextSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
 
-          // 2. Laptop Log Server
-          _buildCategoryHeader('LAPTOP LOG SERVER (DESKTOP CONNECT)', Icons.laptop_chromebook_rounded),
-          _buildLogServerSection(),
-          const SizedBox(height: 20),
+          // 1. Cloud Sync Tile
+          _buildCategoryTile(
+            icon: Icons.cloud_sync_outlined,
+            iconColor: googleBlue,
+            title: 'Cloud Sync & Hugging Face',
+            subtitle: cloudRepoSubtitle,
+            onTap: () => _navigateToSection('cloud'),
+          ),
 
-          // 3. In-App Updates
-          _buildCategoryHeader('IN-APP UPDATES', Icons.system_update_rounded),
-          _buildUpdatesSection(),
-          const SizedBox(height: 20),
+          // 2. Laptop Log Server Tile
+          _buildCategoryTile(
+            icon: Icons.laptop_chromebook_rounded,
+            iconColor: Colors.teal,
+            title: 'Laptop Mistake Log Server',
+            subtitle: serverSubtitle,
+            badgeWidget: _serverRunning
+                ? Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(6)),
+                    child: const Text('ACTIVE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: googleGreen)),
+                  )
+                : null,
+            onTap: () => _navigateToSection('server'),
+          ),
 
-          // 4. Notifications & Routine Alerts
-          _buildCategoryHeader('NOTIFICATIONS & ROUTINE ALERTS', Icons.notifications_none_rounded),
-          _buildAlertsSection(),
-          const SizedBox(height: 20),
+          // 3. In-App Updates Tile
+          _buildCategoryTile(
+            icon: Icons.system_update_rounded,
+            iconColor: googleGreen,
+            title: 'In-App Updates',
+            subtitle: 'v${AppUpdateService.currentVersion} • GitHub releases channel',
+            onTap: () => _navigateToSection('updates'),
+          ),
 
-          // 5. Database & Schema Notes
-          _buildCategoryHeader('DATABASE & MASS IMPORT GUIDE', Icons.storage_rounded),
-          _buildDatabaseSection(),
-          const SizedBox(height: 20),
+          // 4. Notifications & Routine Alerts Tile
+          _buildCategoryTile(
+            icon: Icons.notifications_none_rounded,
+            iconColor: googleAmber,
+            title: 'Notifications & Routine Alerts',
+            subtitle: 'Morning Brief ($_morningBriefTime), Spaced Recall, Backlog Shield',
+            onTap: () => _navigateToSection('alerts'),
+          ),
 
-          // 6. About App
-          _buildCategoryHeader('ABOUT', Icons.info_outline_rounded),
-          _buildAboutSection(),
-          const SizedBox(height: 32),
+          // 5. Database Schema & Mass Import Guide Tile
+          _buildCategoryTile(
+            icon: Icons.storage_rounded,
+            iconColor: Colors.deepPurple,
+            title: 'Database Schema & Mass Import Guide',
+            subtitle: 'SQLite DDL structure & copyable JSON templates',
+            onTap: () => _navigateToSection('schema'),
+          ),
+
+          // 6. About App & Diagnostics Tile
+          _buildCategoryTile(
+            icon: Icons.info_outline_rounded,
+            iconColor: Colors.blueGrey,
+            title: 'About & Diagnostics',
+            subtitle: 'DB statistics, curriculum loader & reset',
+            onTap: () => _navigateToSection('about'),
+          ),
+
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
-  Widget _buildCategoryHeader(String title, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: googleBlue),
-          const SizedBox(width: 6),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
-          ),
-        ],
+  Widget _buildCategoryTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    Widget? badgeWidget,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: googleHairline),
       ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: iconColor, size: 22),
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: googleTextPrimary),
+              ),
+            ),
+            if (badgeWidget != null) badgeWidget,
+          ],
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded, color: googleTextSecondary, size: 20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        onTap: onTap,
+      ),
+    );
+  }
+
+  // ==========================================
+  // DETAIL SUBPAGES
+  // ==========================================
+
+  // --- Detail 1: Cloud Sync ---
+  Widget _buildCloudSyncDetail() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCardContainer(
+          children: [
+            const Text('Hugging Face Write Token', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            TextField(
+              controller: _tokenController,
+              obscureText: true,
+              decoration: InputDecoration(
+                hintText: 'hf_xxxxxxxxxxxxxxxxxxxxxxxx',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            const Text('Hugging Face Username', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            TextField(
+              controller: _usernameController,
+              decoration: InputDecoration(
+                hintText: 'e.g. King758',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            const Text('Dataset Repo Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            TextField(
+              controller: _repoController,
+              decoration: InputDecoration(
+                hintText: 'nyro-android-data',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isTestingCloud ? null : _testCloudConnection,
+                    icon: _isTestingCloud
+                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.wifi_tethering_rounded, size: 16),
+                    label: const Text('Test Token'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: googleBlue,
+                      side: const BorderSide(color: googleBlue),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _saveCloudSettings,
+                    icon: const Icon(Icons.save_rounded, size: 16),
+                    label: const Text('Save Settings'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: googleBlue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Detail 2: Log Server ---
+  Widget _buildLogServerDetail() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCardContainer(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Local HTTP Server', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    Text(
+                      _serverRunning ? '🟢 Running on port 8080' : '🔴 Server stopped',
+                      style: TextStyle(fontSize: 12, color: _serverRunning ? googleGreen : googleTextSecondary),
+                    ),
+                  ],
+                ),
+                Switch(
+                  value: _serverRunning,
+                  activeColor: googleBlue,
+                  onChanged: (val) => _toggleLogServer(val),
+                ),
+              ],
+            ),
+            if (_serverRunning && _serverUrl != null) ...[
+              const Divider(height: 20, thickness: 1, color: googleHairline),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: googleGreen.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.link_rounded, color: googleGreen, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SelectableText(
+                        _serverUrl!,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
+                      tooltip: 'Copy URL',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: _serverUrl!));
+                        TopBanner.show(
+                          context,
+                          title: 'URL Copied',
+                          message: 'Copied ${_serverUrl!} to clipboard.',
+                          icon: Icons.check_circle_outline_rounded,
+                          color: googleGreen,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Open this URL in Chrome/Edge on your laptop to paste test screenshots and log mistakes.',
+                style: TextStyle(fontSize: 11, color: googleTextSecondary),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Auto-start server on app launch', style: TextStyle(fontSize: 13)),
+                Switch(
+                  value: _autoStartServer,
+                  activeColor: googleBlue,
+                  onChanged: (val) async {
+                    setState(() => _autoStartServer = val);
+                    await DatabaseService.instance.setAutoStartServer(val);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Detail 3: In-App Updates ---
+  Widget _buildUpdatesDetail() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCardContainer(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Current Version: v${AppUpdateService.currentVersion}',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    const Text('Repository: Ragu-123/nyro-tasks', style: TextStyle(fontSize: 12, color: googleTextSecondary)),
+                  ],
+                ),
+                ElevatedButton(
+                  onPressed: _isCheckingUpdates ? null : _checkForUpdates,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: googleBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: _isCheckingUpdates
+                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Check Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Check for updates on app launch', style: TextStyle(fontSize: 13)),
+                Switch(
+                  value: _autoCheckUpdates,
+                  activeColor: googleBlue,
+                  onChanged: (val) async {
+                    setState(() => _autoCheckUpdates = val);
+                    await DatabaseService.instance.setAutoCheckUpdates(val);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Detail 4: Alerts ---
+  Widget _buildAlertsDetail() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCardContainer(
+          children: [
+            // Morning Brief
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Morning Study Brief', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    Text('Scheduled at $_morningBriefTime AM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                  ],
+                ),
+                Switch(
+                  value: _morningBrief,
+                  activeColor: googleBlue,
+                  onChanged: (val) {
+                    setState(() => _morningBrief = val);
+                    _saveAlertSettings();
+                  },
+                ),
+              ],
+            ),
+            const Divider(height: 16, thickness: 1, color: googleHairline),
+
+            // Spaced Recall Alerts
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Spaced Recall Checkpoints', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    Text('Day 1, Day 4, Day 7 due reminders', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                  ],
+                ),
+                Switch(
+                  value: _revisitAlerts,
+                  activeColor: googleBlue,
+                  onChanged: (val) {
+                    setState(() => _revisitAlerts = val);
+                    _saveAlertSettings();
+                  },
+                ),
+              ],
+            ),
+            const Divider(height: 16, thickness: 1, color: googleHairline),
+
+            // Evening Backlog Shield
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Evening Backlog Shield', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    Text('Scheduled at $_shieldTime PM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                  ],
+                ),
+                Switch(
+                  value: _backlogShield,
+                  activeColor: googleBlue,
+                  onChanged: (val) {
+                    setState(() => _backlogShield = val);
+                    _saveAlertSettings();
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // --- Detail 5: About & Diagnostics ---
+  Widget _buildAboutDetail() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _buildCardContainer(
+          children: [
+            const Text('NYRO Tasks for GATE 2027', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            const Text(
+              'A Google Tasks inspired study pacing, spaced retention, and blunder inoculation copilot for GATE aspirants.',
+              style: TextStyle(fontSize: 12, color: googleTextSecondary, height: 1.35),
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: () => openExternalUrl('https://github.com/Ragu-123/nyro-tasks'),
+              child: const Row(
+                children: [
+                  Icon(Icons.code_rounded, size: 16, color: googleBlue),
+                  SizedBox(width: 6),
+                  Text(
+                    'https://github.com/Ragu-123/nyro-tasks ↗',
+                    style: TextStyle(fontSize: 12, color: googleBlue, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text('Local Record Counts:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildStatChip('Lectures', _lectureCount),
+                _buildStatChip('Revisits', _revisitCount),
+                _buildStatChip('Quizzes', _quizCount),
+                _buildStatChip('Mistakes', _mistakeCount),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      await DatabaseService.instance.loadSampleCurriculum();
+                      await _loadAllSettings();
+                      TopBanner.show(
+                        context,
+                        title: 'Curriculum Loaded',
+                        message: 'Prepackaged GATE 2027 curriculum imported.',
+                        icon: Icons.check_circle_outline_rounded,
+                        color: googleGreen,
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: googleBlue,
+                      side: const BorderSide(color: googleBlue),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Load Sample DB', style: TextStyle(fontSize: 12)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          title: const Text('Clear All Timetable Data?'),
+                          content: const Text('This will delete all lectures, revisits, and quizzes on this device.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              style: ElevatedButton.styleFrom(backgroundColor: googleRed, foregroundColor: Colors.white),
+                              child: const Text('Clear All'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        await DatabaseService.instance.clearAllTimetableData();
+                        await _loadAllSettings();
+                        TopBanner.show(
+                          context,
+                          title: 'Timetable Cleared',
+                          message: 'All schedule and quiz items removed.',
+                          icon: Icons.delete_outline_rounded,
+                          color: googleRed,
+                        );
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: googleRed,
+                      side: const BorderSide(color: googleRed),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Clear Timetable', style: TextStyle(fontSize: 12)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -464,421 +1089,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // --- Cloud Sync Section ---
-  Widget _buildCloudSyncSection() {
-    return _buildCardContainer(
-      children: [
-        const Text('Hugging Face Write Token', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        TextField(
-          controller: _tokenController,
-          obscureText: true,
-          decoration: InputDecoration(
-            hintText: 'hf_xxxxxxxxxxxxxxxxxxxxxxxx',
-            isDense: true,
-            filled: true,
-            fillColor: const Color(0xFFF8FAFC),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        const Text('Hugging Face Username', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        TextField(
-          controller: _usernameController,
-          decoration: InputDecoration(
-            hintText: 'e.g. King758',
-            isDense: true,
-            filled: true,
-            fillColor: const Color(0xFFF8FAFC),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        const Text('Dataset Repo Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        TextField(
-          controller: _repoController,
-          decoration: InputDecoration(
-            hintText: 'nyro-android-data',
-            isDense: true,
-            filled: true,
-            fillColor: const Color(0xFFF8FAFC),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: googleBorder)),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: _isTestingCloud ? null : _testCloudConnection,
-                icon: _isTestingCloud
-                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.wifi_tethering_rounded, size: 16),
-                label: const Text('Test Token'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: googleBlue,
-                  side: const BorderSide(color: googleBlue),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: _saveCloudSettings,
-                icon: const Icon(Icons.save_rounded, size: 16),
-                label: const Text('Save Settings'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: googleBlue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // --- Log Server Section ---
-  Widget _buildLogServerSection() {
-    return _buildCardContainer(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Local HTTP Server', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                Text(
-                  _serverRunning ? '🟢 Running on port 8080' : '🔴 Server stopped',
-                  style: TextStyle(fontSize: 12, color: _serverRunning ? googleGreen : googleTextSecondary),
-                ),
-              ],
-            ),
-            Switch(
-              value: _serverRunning,
-              activeColor: googleBlue,
-              onChanged: (val) => _toggleLogServer(val),
-            ),
-          ],
-        ),
-        if (_serverRunning && _serverUrl != null) ...[
-          const Divider(height: 20, thickness: 1, color: googleHairline),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0FDF4),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: googleGreen.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.link_rounded, color: googleGreen, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: SelectableText(
-                    _serverUrl!,
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
-                  tooltip: 'Copy URL',
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: _serverUrl!));
-                    TopBanner.show(
-                      context,
-                      title: 'URL Copied',
-                      message: 'Copied ${_serverUrl!} to clipboard.',
-                      icon: Icons.check_circle_outline_rounded,
-                      color: googleGreen,
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Open this URL in Chrome/Edge on your laptop to paste test screenshots and log mistakes.',
-            style: TextStyle(fontSize: 11, color: googleTextSecondary),
-          ),
-        ],
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Auto-start server on app launch', style: TextStyle(fontSize: 13)),
-            Switch(
-              value: _autoStartServer,
-              activeColor: googleBlue,
-              onChanged: (val) async {
-                setState(() => _autoStartServer = val);
-                await DatabaseService.instance.setAutoStartServer(val);
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // --- In-App Updates Section ---
-  Widget _buildUpdatesSection() {
-    return _buildCardContainer(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Current Version: v${AppUpdateService.currentVersion}',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                ),
-                const Text('Repository: Ragu-123/nyro-tasks', style: TextStyle(fontSize: 12, color: googleTextSecondary)),
-              ],
-            ),
-            ElevatedButton(
-              onPressed: _isCheckingUpdates ? null : _checkForUpdates,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: googleBlue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: _isCheckingUpdates
-                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Check Now', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Check for updates on app launch', style: TextStyle(fontSize: 13)),
-            Switch(
-              value: _autoCheckUpdates,
-              activeColor: googleBlue,
-              onChanged: (val) async {
-                setState(() => _autoCheckUpdates = val);
-                await DatabaseService.instance.setAutoCheckUpdates(val);
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // --- Routine Alerts Section ---
-  Widget _buildAlertsSection() {
-    return _buildCardContainer(
-      children: [
-        // Morning Brief
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Morning Study Brief', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                Text('Scheduled at $_morningBriefTime AM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-              ],
-            ),
-            Switch(
-              value: _morningBrief,
-              activeColor: googleBlue,
-              onChanged: (val) {
-                setState(() => _morningBrief = val);
-                _saveAlertSettings();
-              },
-            ),
-          ],
-        ),
-        const Divider(height: 16, thickness: 1, color: googleHairline),
-
-        // Spaced Recall Alerts
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Spaced Recall Checkpoints', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                Text('Day 1, Day 4, Day 7 due reminders', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
-              ],
-            ),
-            Switch(
-              value: _revisitAlerts,
-              activeColor: googleBlue,
-              onChanged: (val) {
-                setState(() => _revisitAlerts = val);
-                _saveAlertSettings();
-              },
-            ),
-          ],
-        ),
-        const Divider(height: 16, thickness: 1, color: googleHairline),
-
-        // Evening Backlog Shield
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Evening Backlog Shield', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                Text('Scheduled at $_shieldTime PM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-              ],
-            ),
-            Switch(
-              value: _backlogShield,
-              activeColor: googleBlue,
-              onChanged: (val) {
-                setState(() => _backlogShield = val);
-                _saveAlertSettings();
-              },
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // --- Database Section ---
-  Widget _buildDatabaseSection() {
-    return _buildCardContainer(
-      children: [
-        // Schema Guide Tile
-        InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const DatabaseSchemaGuidePage()),
-            );
-          },
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F0FE),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.menu_book_rounded, color: googleBlue, size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Database Schema Notes ↗', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleBlue)),
-                      Text('Table structures and JSON format for mass preparing DB', style: TextStyle(fontSize: 11, color: googleTextPrimary)),
-                    ],
-                  ),
-                ),
-                Icon(Icons.chevron_right_rounded, color: googleBlue),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        const Text('Local Record Counts:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextSecondary)),
-        const SizedBox(height: 6),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _buildStatChip('Lectures', _lectureCount),
-            _buildStatChip('Revisits', _revisitCount),
-            _buildStatChip('Quizzes', _quizCount),
-            _buildStatChip('Mistakes', _mistakeCount),
-          ],
-        ),
-        const SizedBox(height: 16),
-
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () async {
-                  await DatabaseService.instance.loadSampleCurriculum();
-                  await _loadAllSettings();
-                  TopBanner.show(
-                    context,
-                    title: 'Curriculum Loaded',
-                    message: 'Prepackaged GATE 2027 curriculum imported.',
-                    icon: Icons.check_circle_outline_rounded,
-                    color: googleGreen,
-                  );
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: googleBlue,
-                  side: const BorderSide(color: googleBlue),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Load Sample DB', style: TextStyle(fontSize: 12)),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      title: const Text('Clear All Timetable Data?'),
-                      content: const Text('This will delete all lectures, revisits, and quizzes on this device.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          style: ElevatedButton.styleFrom(backgroundColor: googleRed, foregroundColor: Colors.white),
-                          child: const Text('Clear All'),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (confirm == true) {
-                    await DatabaseService.instance.clearAllTimetableData();
-                    await _loadAllSettings();
-                    TopBanner.show(
-                      context,
-                      title: 'Timetable Cleared',
-                      message: 'All schedule and quiz items removed.',
-                      icon: Icons.delete_outline_rounded,
-                      color: googleRed,
-                    );
-                  }
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: googleRed,
-                  side: const BorderSide(color: googleRed),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Clear Timetable', style: TextStyle(fontSize: 12)),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildStatChip(String label, int count) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -892,34 +1102,6 @@ class _SettingsPageState extends State<SettingsPage> {
           Text(label, style: const TextStyle(fontSize: 10, color: googleTextSecondary)),
         ],
       ),
-    );
-  }
-
-  // --- About Section ---
-  Widget _buildAboutSection() {
-    return _buildCardContainer(
-      children: [
-        const Text('NYRO Tasks for GATE 2027', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        const Text(
-          'A Google Tasks inspired study pacing, spaced retention, and blunder inoculation copilot for GATE aspirants.',
-          style: TextStyle(fontSize: 12, color: googleTextSecondary, height: 1.35),
-        ),
-        const SizedBox(height: 10),
-        InkWell(
-          onTap: () => openExternalUrl('https://github.com/Ragu-123/nyro-tasks'),
-          child: const Row(
-            children: [
-              Icon(Icons.code_rounded, size: 16, color: googleBlue),
-              SizedBox(width: 6),
-              Text(
-                'https://github.com/Ragu-123/nyro-tasks ↗',
-                style: TextStyle(fontSize: 12, color: googleBlue, fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

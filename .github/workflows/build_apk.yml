@@ -42,12 +42,26 @@ jobs:
           name: NYRO-Tasks-Release-APK
           path: build/app/outputs/flutter-apk/app-release.apk
 
+      - name: Determine Release Tag & Name
+        id: release_info
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${{ github.ref_name }}"
+            TITLE="NYRO Tasks ${{ github.ref_name }}"
+          else
+            VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '\r' | cut -d'+' -f1)
+            TAG="v${VERSION}.${{ github.run_number }}"
+            TITLE="NYRO Tasks $TAG (Build ${{ github.run_number }})"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: ${{ steps.release_info.outputs.title }}
           files: build/app/outputs/flutter-apk/app-release.apk
-          name: NYRO Tasks ${{ github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true

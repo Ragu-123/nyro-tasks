@@ -35,7 +35,8 @@ class AppReleaseInfo {
       final curParts = currentVersion.replaceFirst(RegExp(r'^[vV]'), '').split('+').first.split('.').map(int.parse).toList();
       final remoteParts = versionClean.split('+').first.split('.').map(int.parse).toList();
 
-      for (int i = 0; i < 3; i++) {
+      final maxLen = curParts.length > remoteParts.length ? curParts.length : remoteParts.length;
+      for (int i = 0; i < maxLen; i++) {
         final cur = i < curParts.length ? curParts[i] : 0;
         final rem = i < remoteParts.length ? remoteParts[i] : 0;
         if (rem > cur) return true;
@@ -107,7 +108,7 @@ class AppUpdateProgress {
 }
 
 class AppUpdateService {
-  static const String currentVersion = '1.0.0';
+  static const String currentVersion = '1.0.2';
   static const String defaultGithubRepo = 'Ragu-123/nyro-tasks';
   static const MethodChannel _nativeChannel = MethodChannel('io.github.thelazyindian.tasks/native');
 
@@ -128,6 +129,9 @@ class AppUpdateService {
       request.headers.set('Accept', 'application/vnd.github.v3+json');
 
       final response = await request.close();
+      if (response.statusCode == 404) {
+        return null; // No releases published yet
+      }
       if (response.statusCode != 200) {
         throw Exception('GitHub API responded with status ${response.statusCode}');
       }

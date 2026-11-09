@@ -175,6 +175,8 @@ class _HomePageState extends State<HomePage> {
     final quizTitleController = TextEditingController();
     final quizSubjectController = TextEditingController();
     final quizSyllabusController = TextEditingController();
+    String? selectedQuizDropdownSubject;
+    bool isAddingNewQuizSubject = false;
     String quizType = 'WEEKLY_QUIZ';
     int quizDurationMins = 45;
     int quizTotalMarks = 25;
@@ -476,21 +478,66 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 10),
 
-                      const Text('SUBJECT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary)),
-                      const SizedBox(height: 4),
-                      TextField(
-                        controller: quizSubjectController,
-                        style: const TextStyle(fontSize: 14),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. Calculus and Optimization',
-                          isDense: true,
-                          filled: true,
-                          fillColor: const Color(0xFFF8FAFD),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      // Quiz Subject selection (Dropdown if subjects exist, otherwise text field)
+                      if (availableExistingSubjects.isNotEmpty && !isAddingNewQuizSubject) ...[
+                        const Text('SUBJECT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+                        const SizedBox(height: 4),
+                        Container(
+                          height: 44,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFD),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: googleBorder),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: selectedQuizDropdownSubject ?? availableExistingSubjects.first,
+                              isExpanded: true,
+                              icon: const Icon(Icons.arrow_drop_down_rounded, color: googleBlue),
+                              style: const TextStyle(fontSize: 13, color: googleTextPrimary, fontWeight: FontWeight.w600),
+                              items: [
+                                ...availableExistingSubjects.map((s) => DropdownMenuItem(value: s, child: Text(s))),
+                                const DropdownMenuItem(value: '__NEW__', child: Text('➕ Enter New Subject...', style: TextStyle(color: googleBlue))),
+                              ],
+                              onChanged: (val) {
+                                if (val == '__NEW__') {
+                                  setSheetState(() => isAddingNewQuizSubject = true);
+                                } else if (val != null) {
+                                  setSheetState(() => selectedQuizDropdownSubject = val);
+                                }
+                              },
+                            ),
+                          ),
                         ),
-                      ),
+                      ] else ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('SUBJECT NAME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+                            if (availableExistingSubjects.isNotEmpty)
+                              InkWell(
+                                onTap: () => setSheetState(() => isAddingNewQuizSubject = false),
+                                child: const Text('Pick from existing', style: TextStyle(fontSize: 10, color: googleBlue)),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        TextField(
+                          controller: quizSubjectController,
+                          style: const TextStyle(fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'e.g. Calculus and Optimization',
+                            hintStyle: const TextStyle(fontSize: 13, color: googleBorder),
+                            isDense: true,
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFD),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
+                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 10),
 
                       Row(
@@ -884,10 +931,13 @@ class _HomePageState extends State<HomePage> {
                             // 3. SAVE QUIZ
                             else if (selectedType == 'Quizzes') {
                               final title = quizTitleController.text.trim();
-                              String subj = quizSubjectController.text.trim();
+                              String subj = (availableExistingSubjects.isNotEmpty && !isAddingNewQuizSubject)
+                                  ? (selectedQuizDropdownSubject ?? availableExistingSubjects.first)
+                                  : quizSubjectController.text.trim();
                               if (subj.isEmpty) subj = 'Engineering Mathematics';
 
                               if (title.isNotEmpty) {
+                                await DatabaseService.instance.saveCustomSubject(subj);
                                 await DatabaseService.instance.insertQuiz(
                                   quizType: quizType,
                                   title: title,
@@ -1140,7 +1190,12 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: Colors.white,
       endDrawer: _buildSideNavigationDrawer(),
       appBar: AppBar(
-        titleSpacing: 20,
+        titleSpacing: 4,
+        leading: IconButton(
+          icon: const Icon(Icons.calendar_month_outlined, color: googleBlue, size: 22),
+          tooltip: 'Jump to Date',
+          onPressed: _pickDate,
+        ),
         title: Row(
           children: [
             const Text(
@@ -1204,18 +1259,19 @@ class _HomePageState extends State<HomePage> {
               clipBehavior: Clip.none,
               children: [
                 const Icon(Icons.menu_rounded, size: 24, color: googleTextPrimary),
-                Positioned(
-                  top: -1,
-                  right: -1,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: googleAmber,
-                      shape: BoxShape.circle,
+                if ((_badgeCounts['total_due'] ?? 0) > 0)
+                  Positioned(
+                    top: -1,
+                    right: -1,
+                    child: Container(
+                      width: 7,
+                      height: 7,
+                      decoration: const BoxDecoration(
+                        color: googleAmber,
+                        shape: BoxShape.circle,
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
             tooltip: 'Navigation Menu',
