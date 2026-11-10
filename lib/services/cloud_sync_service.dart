@@ -20,7 +20,7 @@ class CloudSyncService {
         : await DatabaseService.instance.getHfRepo();
 
     if (bucket == null || bucket.trim().isEmpty) {
-      bucket = 'King758/nyrodb-android-tasks';
+      bucket = 'gate2027-nyro';
     }
 
     if (bucket.contains('/')) {
@@ -40,7 +40,7 @@ class CloudSyncService {
       }
     }
 
-    final user = (username != null && username.trim().isNotEmpty) ? username.trim() : 'King758';
+    final user = (username != null && username.trim().isNotEmpty) ? username.trim() : 'me';
     return '$user/${bucket.trim()}';
   }
 
@@ -289,7 +289,7 @@ class CloudSyncService {
     } catch (_) {}
 
     final customBucket = await DatabaseService.instance.getHfBucket();
-    if (isBucket || (customBucket != null && customBucket.trim().isNotEmpty) || cleanRepo.contains('nyrodb-android-tasks') || cleanRepo.contains('bucket')) {
+    if (isBucket || (customBucket != null && customBucket.trim().isNotEmpty) || cleanRepo.contains('bucket')) {
       throw Exception('Cloud sync bridge to bucket timed out. Please try again in a few moments.');
     }
 

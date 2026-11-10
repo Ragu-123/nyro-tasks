@@ -29,7 +29,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   // Setup controllers for any user
   final _tokenController = TextEditingController();
   final _usernameController = TextEditingController();
-  final _repoController = TextEditingController(text: 'King758/nyrodb-android-tasks');
+  final _repoController = TextEditingController(text: 'gate2027-nyro');
   bool _createBucketInApp = false;
   bool _isSettingUp = false;
 
@@ -58,9 +58,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
     final effectiveBucket = (bucket != null && bucket.trim().isNotEmpty)
         ? bucket.trim()
-        : ((repo != null && repo.trim().isNotEmpty)
-            ? repo.trim()
-            : 'King758/nyrodb-android-tasks');
+        : (repo != null && repo.trim().isNotEmpty ? repo.trim() : null);
 
     if (mounted) {
       setState(() {
@@ -71,7 +69,9 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         _lastSyncedAt = lastSync;
         _isLoading = false;
       });
-      _repoController.text = effectiveBucket;
+      if (effectiveBucket != null && effectiveBucket.isNotEmpty) {
+        _repoController.text = effectiveBucket;
+      }
       if (token != null && token.isNotEmpty) {
         _tokenController.text = token;
       }
@@ -84,7 +84,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   Future<void> _saveFirstTimeSetup() async {
     final token = _tokenController.text.trim();
     String username = _usernameController.text.trim();
-    final repo = _repoController.text.trim().isNotEmpty ? _repoController.text.trim() : 'King758/nyrodb-android-tasks';
+    final repo = _repoController.text.trim().isNotEmpty ? _repoController.text.trim() : 'gate2027-nyro';
 
     if (token.isEmpty) {
       TopBanner.show(
@@ -108,7 +108,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         if (detected != null && detected.isNotEmpty) {
           username = detected;
         } else {
-          username = 'King758';
+          username = 'user';
         }
       }
 
@@ -472,7 +472,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               TextField(
                 controller: _repoController,
                 decoration: InputDecoration(
-                  hintText: 'e.g. King758/nyrodb-android-tasks',
+                  hintText: 'e.g. gate2027-nyro or username/my-bucket',
                   hintStyle: const TextStyle(fontSize: 13, color: googleBorder),
                   filled: true,
                   fillColor: Colors.white,
@@ -558,8 +558,8 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         ? '@$_username'
         : ((_bucket != null && _bucket!.contains('/'))
             ? '@${_bucket!.split('/')[0]}'
-            : '@King758');
-    final displayBucket = (_bucket != null && _bucket!.isNotEmpty) ? _bucket! : 'King758/nyrodb-android-tasks';
+            : 'Hugging Face Hub');
+    final displayBucket = (_bucket != null && _bucket!.isNotEmpty) ? _bucket! : (_repo ?? 'Storage Bucket');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

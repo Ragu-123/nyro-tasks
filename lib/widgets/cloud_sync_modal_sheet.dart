@@ -507,7 +507,7 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
                         iconColor: googleBlue,
                         title: 'Sync Master Database (nyro.db)',
                         subtitle:
-                            'Download updated lectures, timetable dates, and quizzes from Hugging Face bucket (King758/gate2027-nyro).',
+                            'Download updated lectures, timetable dates, and quizzes from your Hugging Face storage bucket.',
                         actions: [
                           FilledButton.icon(
                             onPressed: (_isSyncing || !hasToken)
@@ -547,7 +547,7 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
                         iconColor: const Color(0xFF1E8E3E),
                         title: 'Upload Android DB to Hub',
                         subtitle:
-                            'Upload your current study ticks, completed checkboxes, mistake notebook, and custom reminders to King758/nyro-android-data.',
+                            'Upload your current study ticks, completed checkboxes, mistake notebook, and custom reminders to your cloud bucket.',
                         actions: [
                           FilledButton.icon(
                             onPressed: (_isSyncing || !hasToken) ? null : _performUploadAndroidDb,
@@ -572,7 +572,7 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
                         iconColor: googleAmber,
                         title: 'Restore Android DB from Hub',
                         subtitle:
-                            'Download your previously backed up android_nyro.db from King758/nyro-android-data to restore your progress.',
+                            'Download your previously backed up database from your cloud bucket to restore your progress.',
                         actions: [
                           OutlinedButton.icon(
                             onPressed: (_isSyncing || !hasToken) ? null : _performRestoreAndroidDb,
