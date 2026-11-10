@@ -20,7 +20,7 @@ class CloudSyncService {
         : await DatabaseService.instance.getHfRepo();
 
     if (bucket == null || bucket.trim().isEmpty) {
-      bucket = 'gate2027-nyro';
+      bucket = 'King758/nyrodb-android-tasks';
     }
 
     if (bucket.contains('/')) {
@@ -40,7 +40,7 @@ class CloudSyncService {
       }
     }
 
-    final user = (username != null && username.trim().isNotEmpty) ? username.trim() : 'me';
+    final user = (username != null && username.trim().isNotEmpty) ? username.trim() : 'King758';
     return '$user/${bucket.trim()}';
   }
 
@@ -114,14 +114,17 @@ class CloudSyncService {
     required String token,
     String? bucketRepo,
   }) async {
-    final targetBucket = bucketRepo ?? await getEffectiveBucketRepo(token: token);
+    String targetBucket = bucketRepo ?? await getEffectiveBucketRepo(token: token);
+    if (!targetBucket.contains('/')) {
+      targetBucket = await getEffectiveBucketRepo(token: token);
+    }
     final localDbPath = await DatabaseService.instance.getDbPath();
     final file = File(localDbPath);
     if (!await file.exists()) {
       throw Exception('Local database file not found at $localDbPath');
     }
     final bytes = await file.readAsBytes();
-    final cleanRepo = targetBucket.contains('/') ? targetBucket : '$targetBucket';
+    final cleanRepo = targetBucket.trim();
     final b64 = base64Encode(bytes);
 
     // Route 1: Push via Cloud Bridge to Hugging Face Bucket
@@ -286,7 +289,7 @@ class CloudSyncService {
     } catch (_) {}
 
     final customBucket = await DatabaseService.instance.getHfBucket();
-    if (isBucket || (customBucket != null && customBucket.trim().isNotEmpty)) {
+    if (isBucket || (customBucket != null && customBucket.trim().isNotEmpty) || cleanRepo.contains('nyrodb-android-tasks') || cleanRepo.contains('bucket')) {
       throw Exception('Cloud sync bridge to bucket timed out. Please try again in a few moments.');
     }
 
@@ -300,7 +303,10 @@ class CloudSyncService {
     required String token,
     String? bucketRepo,
   }) async {
-    final targetBucket = bucketRepo ?? await getEffectiveBucketRepo(token: token);
+    String targetBucket = bucketRepo ?? await getEffectiveBucketRepo(token: token);
+    if (!targetBucket.contains('/')) {
+      targetBucket = await getEffectiveBucketRepo(token: token);
+    }
 
     // Primary: Download nyro.db directly from Hugging Face Bucket
     final bucketUrl = Uri.parse('https://huggingface.co/buckets/$targetBucket/resolve/nyro.db');

@@ -29,7 +29,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   // Setup controllers for any user
   final _tokenController = TextEditingController();
   final _usernameController = TextEditingController();
-  final _repoController = TextEditingController(text: 'gate2027-nyro');
+  final _repoController = TextEditingController(text: 'King758/nyrodb-android-tasks');
   bool _createBucketInApp = false;
   bool _isSettingUp = false;
 
@@ -56,39 +56,41 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         : await DatabaseService.instance.getHfRepo();
     final lastSync = await DatabaseService.instance.getConfig('last_synced_at');
 
+    final effectiveBucket = (bucket != null && bucket.trim().isNotEmpty)
+        ? bucket.trim()
+        : ((repo != null && repo.trim().isNotEmpty)
+            ? repo.trim()
+            : 'King758/nyrodb-android-tasks');
+
     if (mounted) {
       setState(() {
         _token = token;
         _username = username;
-        _bucket = (bucket != null && bucket.trim().isNotEmpty) ? bucket.trim() : repo;
-        _repo = _bucket;
+        _bucket = effectiveBucket;
+        _repo = effectiveBucket;
         _lastSyncedAt = lastSync;
         _isLoading = false;
       });
+      _repoController.text = effectiveBucket;
+      if (token != null && token.isNotEmpty) {
+        _tokenController.text = token;
+      }
+      if (username != null && username.isNotEmpty) {
+        _usernameController.text = username;
+      }
     }
   }
 
   Future<void> _saveFirstTimeSetup() async {
     final token = _tokenController.text.trim();
     String username = _usernameController.text.trim();
-    final repo = _repoController.text.trim();
+    final repo = _repoController.text.trim().isNotEmpty ? _repoController.text.trim() : 'King758/nyrodb-android-tasks';
 
     if (token.isEmpty) {
       TopBanner.show(
         context,
         title: 'Missing Token',
         message: 'Please enter your Hugging Face write token.',
-        icon: Icons.warning_amber_rounded,
-        color: googleRed,
-      );
-      return;
-    }
-
-    if (repo.isEmpty) {
-      TopBanner.show(
-        context,
-        title: 'Missing Bucket Name',
-        message: 'Please enter your Hugging Face storage bucket name.',
         icon: Icons.warning_amber_rounded,
         color: googleRed,
       );
@@ -106,7 +108,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         if (detected != null && detected.isNotEmpty) {
           username = detected;
         } else {
-          username = 'user';
+          username = 'King758';
         }
       }
 
@@ -470,7 +472,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               TextField(
                 controller: _repoController,
                 decoration: InputDecoration(
-                  hintText: 'e.g. gate2027-nyro or username/my-bucket',
+                  hintText: 'e.g. King758/nyrodb-android-tasks',
                   hintStyle: const TextStyle(fontSize: 13, color: googleBorder),
                   filled: true,
                   fillColor: Colors.white,
@@ -556,8 +558,8 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         ? '@$_username'
         : ((_bucket != null && _bucket!.contains('/'))
             ? '@${_bucket!.split('/')[0]}'
-            : 'Hugging Face Hub');
-    final displayBucket = _bucket ?? _repo ?? 'Storage Bucket';
+            : '@King758');
+    final displayBucket = (_bucket != null && _bucket!.isNotEmpty) ? _bucket! : 'King758/nyrodb-android-tasks';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -53,12 +53,13 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _loadAllSettings();
+    _initSettings();
+  }
 
-    if (widget.initialSection != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _navigateToSection(widget.initialSection!);
-      });
+  Future<void> _initSettings() async {
+    await _loadAllSettings();
+    if (widget.initialSection != null && mounted) {
+      _navigateToSection(widget.initialSection!);
     }
   }
 
@@ -79,7 +80,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final savedRepo = await DatabaseService.instance.getHfRepo();
     final effectiveBucket = (savedBucket != null && savedBucket.trim().isNotEmpty)
         ? savedBucket.trim()
-        : (savedRepo ?? '');
+        : ((savedRepo != null && savedRepo.trim().isNotEmpty)
+            ? savedRepo.trim()
+            : 'King758/nyrodb-android-tasks');
     _bucketController.text = effectiveBucket;
     _repoController.text = effectiveBucket;
 
@@ -188,7 +191,9 @@ class _SettingsPageState extends State<SettingsPage> {
   // --- Cloud Actions ---
 
   Future<void> _saveCloudSettings() async {
-    final bucketVal = _bucketController.text.trim();
+    final bucketInput = _bucketController.text.trim();
+    final bucketVal = bucketInput.isNotEmpty ? bucketInput : 'King758/nyrodb-android-tasks';
+    _bucketController.text = bucketVal;
     _repoController.text = bucketVal;
     await DatabaseService.instance.setHfToken(_tokenController.text.trim());
     await DatabaseService.instance.setHfUsername(_usernameController.text.trim());
@@ -227,6 +232,13 @@ class _SettingsPageState extends State<SettingsPage> {
         if (_usernameController.text.trim().isEmpty) {
           _usernameController.text = user;
           await DatabaseService.instance.setHfUsername(user);
+        }
+        await DatabaseService.instance.setHfToken(token);
+        final curBucket = await DatabaseService.instance.getHfBucket();
+        if (curBucket == null || curBucket.trim().isEmpty) {
+          final bVal = _bucketController.text.trim().isNotEmpty ? _bucketController.text.trim() : 'King758/nyrodb-android-tasks';
+          await DatabaseService.instance.setHfBucket(bVal);
+          await DatabaseService.instance.setHfRepo(bVal);
         }
         TopBanner.show(
           context,
@@ -829,7 +841,7 @@ class _SettingsPageState extends State<SettingsPage> {
             TextField(
               controller: _bucketController,
               decoration: InputDecoration(
-                hintText: 'e.g. gate2027-nyro or username/my-bucket',
+                hintText: 'e.g. King758/nyrodb-android-tasks',
                 isDense: true,
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),

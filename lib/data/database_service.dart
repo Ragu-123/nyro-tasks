@@ -201,6 +201,24 @@ class DatabaseService {
       INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time)
       VALUES (1, 1, '05:00', 1, 1, '21:30')
     ''');
+
+    // Defensive schema migrations for existing databases
+    try {
+      final mCols = await db.rawQuery('PRAGMA table_info(mistake_records)');
+      final colNames = mCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
+      if (!colNames.contains('question_text')) {
+        await db.execute('ALTER TABLE mistake_records ADD COLUMN question_text VARCHAR');
+      }
+      if (!colNames.contains('wrong_answer')) {
+        await db.execute('ALTER TABLE mistake_records ADD COLUMN wrong_answer VARCHAR');
+      }
+      if (!colNames.contains('correct_answer')) {
+        await db.execute('ALTER TABLE mistake_records ADD COLUMN correct_answer VARCHAR');
+      }
+      if (!colNames.contains('resolved_at')) {
+        await db.execute('ALTER TABLE mistake_records ADD COLUMN resolved_at DATETIME');
+      }
+    } catch (_) {}
   }
 
   // --- App Config & Hugging Face Tokens / Settings ---
