@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:intl/intl.dart';
 import 'package:tasks/data/database_service.dart';
 import 'package:tasks/utils/theme.dart';
 import 'package:tasks/utils/url_helper.dart';
 import 'package:tasks/widgets/google_checkbox.dart';
+
+enum QuizSortOption {
+  dateAsc, // Earliest Date first (Default)
+  dateDesc, // Latest Date first
+  subjectAsc, // Subject (A-Z)
+  marksDesc, // Marks (High to Low)
+  durationAsc, // Duration (Shortest first)
+}
 
 class QuizzesTab extends StatefulWidget {
   final VoidCallback onDataChanged;
@@ -26,6 +35,8 @@ class _QuizzesTabState extends State<QuizzesTab> {
   List<Map<String, dynamic>> _quizzes = [];
   Map<int, int> _trapsCounts = {};
   bool _isLoading = true;
+  bool _isCompletedExpanded = false;
+  QuizSortOption _sortOption = QuizSortOption.dateAsc; // Default sorted by Date
 
   @override
   void initState() {
@@ -41,6 +52,67 @@ class _QuizzesTabState extends State<QuizzesTab> {
     }
   }
 
+  DateTime _parseQuizDate(String? d) {
+    if (d == null || d.trim().isEmpty) return DateTime(2099);
+    try {
+      return DateFormat('dd MMM yyyy').parse(d.trim());
+    } catch (_) {
+      try {
+        return DateFormat('d MMM yyyy').parse(d.trim());
+      } catch (_) {
+        try {
+          return DateTime.parse(d.trim());
+        } catch (_) {
+          return DateTime(2099);
+        }
+      }
+    }
+  }
+
+  List<Map<String, dynamic>> _applySorting(List<Map<String, dynamic>> items) {
+    final list = List<Map<String, dynamic>>.from(items);
+    switch (_sortOption) {
+      case QuizSortOption.dateAsc:
+        list.sort((a, b) {
+          final dA = _parseQuizDate(a['date_str']);
+          final dB = _parseQuizDate(b['date_str']);
+          final cmp = dA.compareTo(dB);
+          return cmp != 0 ? cmp : (a['id'] as int).compareTo(b['id'] as int);
+        });
+        break;
+      case QuizSortOption.dateDesc:
+        list.sort((a, b) {
+          final dA = _parseQuizDate(a['date_str']);
+          final dB = _parseQuizDate(b['date_str']);
+          final cmp = dB.compareTo(dA);
+          return cmp != 0 ? cmp : (b['id'] as int).compareTo(a['id'] as int);
+        });
+        break;
+      case QuizSortOption.subjectAsc:
+        list.sort((a, b) {
+          final sA = (a['subject'] ?? '').toString().toLowerCase();
+          final sB = (b['subject'] ?? '').toString().toLowerCase();
+          return sA.compareTo(sB);
+        });
+        break;
+      case QuizSortOption.marksDesc:
+        list.sort((a, b) {
+          final mA = (a['total_marks'] as num?)?.toInt() ?? 0;
+          final mB = (b['total_marks'] as num?)?.toInt() ?? 0;
+          return mB.compareTo(mA);
+        });
+        break;
+      case QuizSortOption.durationAsc:
+        list.sort((a, b) {
+          final dA = (a['duration_mins'] as num?)?.toInt() ?? 0;
+          final dB = (b['duration_mins'] as num?)?.toInt() ?? 0;
+          return dA.compareTo(dB);
+        });
+        break;
+    }
+    return list;
+  }
+
   Future<void> _loadQuizzes() async {
     setState(() => _isLoading = true);
     final type = _activeTypeIndex == 0 ? 'WEEKLY_QUIZ' : 'TEST_SERIES';
@@ -54,9 +126,11 @@ class _QuizzesTabState extends State<QuizzesTab> {
       counts[id] = cnt;
     }
 
+    final sortedItems = _applySorting(items);
+
     if (mounted) {
       setState(() {
-        _quizzes = items;
+        _quizzes = sortedItems;
         _trapsCounts = counts;
         _isLoading = false;
       });
@@ -68,6 +142,160 @@ class _QuizzesTabState extends State<QuizzesTab> {
     await DatabaseService.instance.toggleQuizStatus(id, done);
     await _loadQuizzes();
     widget.onDataChanged();
+  }
+
+  void _showSortAndFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0E2EC),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Sort & Preferences',
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                        ),
+                        if (widget.onOpenFilter != null)
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              widget.onOpenFilter!();
+                            },
+                            icon: const Icon(Icons.filter_list_rounded, size: 16, color: googleBlue),
+                            label: const Text('Subject Filter', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'SORT QUIZZES BY',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
+                    ),
+                    const SizedBox(height: 8),
+
+                    _buildSortTile(
+                      label: 'Date: Earliest First (Default)',
+                      subtitle: 'Chronological test schedule order',
+                      option: QuizSortOption.dateAsc,
+                      icon: Icons.calendar_today_rounded,
+                      setSheetState: setSheetState,
+                    ),
+                    _buildSortTile(
+                      label: 'Date: Latest First',
+                      subtitle: 'Most recently scheduled tests first',
+                      option: QuizSortOption.dateDesc,
+                      icon: Icons.history_rounded,
+                      setSheetState: setSheetState,
+                    ),
+                    _buildSortTile(
+                      label: 'Subject: A to Z',
+                      subtitle: 'Alphabetical subject grouping',
+                      option: QuizSortOption.subjectAsc,
+                      icon: Icons.sort_by_alpha_rounded,
+                      setSheetState: setSheetState,
+                    ),
+                    _buildSortTile(
+                      label: 'Total Marks: High to Low',
+                      subtitle: 'Full-length and high-weight mocks first',
+                      option: QuizSortOption.marksDesc,
+                      icon: Icons.score_outlined,
+                      setSheetState: setSheetState,
+                    ),
+                    _buildSortTile(
+                      label: 'Duration: Shortest First',
+                      subtitle: 'Quick 30-45m practice tests first',
+                      option: QuizSortOption.durationAsc,
+                      icon: Icons.timer_outlined,
+                      setSheetState: setSheetState,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSortTile({
+    required String label,
+    required String subtitle,
+    required QuizSortOption option,
+    required IconData icon,
+    required StateSetter setSheetState,
+  }) {
+    final isSelected = _sortOption == option;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        setSheetState(() => _sortOption = option);
+        setState(() {
+          _sortOption = option;
+          _quizzes = _applySorting(_quizzes);
+        });
+        Navigator.pop(context);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        margin: const EdgeInsets.only(bottom: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? googleBlue.withOpacity(0.08) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: isSelected ? googleBlue : googleTextSecondary),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      color: isSelected ? googleBlue : googleTextPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected) const Icon(Icons.check_rounded, size: 20, color: googleBlue),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showQuizTrapsSheet(Map<String, dynamic> q) async {
@@ -152,23 +380,24 @@ class _QuizzesTabState extends State<QuizzesTab> {
                                       ),
                                       child: Text(
                                         sev,
-                                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: sevCol),
+                                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: sevCol),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
                                         topic,
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextPrimary),
                                       ),
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 6),
                                 MarkdownBody(
                                   data: takeaway,
-                                  selectable: true,
-                                  onTapLink: (text, href, title) => openExternalUrl(href),
+                                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                    p: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.3),
+                                  ),
                                 ),
                               ],
                             ),
@@ -185,19 +414,21 @@ class _QuizzesTabState extends State<QuizzesTab> {
 
   @override
   Widget build(BuildContext context) {
-    Map<String, dynamic>? upcomingQuiz;
-    if (_quizzes.isNotEmpty) {
-      upcomingQuiz = _quizzes.firstWhere(
-        (q) => (q['status'] as String?)?.toUpperCase() != 'COMPLETED',
-        orElse: () => _quizzes.first,
-      );
-    }
+    // Upcoming Quiz banner
+    final upcomingQuiz = _quizzes.firstWhere(
+      (q) => (q['status'] as String?)?.toUpperCase() != 'COMPLETED',
+      orElse: () => {},
+    );
+
+    // Pending vs Completed Quizzes
+    final pending = _quizzes.where((q) => (q['status'] as String?)?.toUpperCase() != 'COMPLETED').toList();
+    final completed = _quizzes.where((q) => (q['status'] as String?)?.toUpperCase() == 'COMPLETED').toList();
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // Sub-Tab Navigation
+          // Sub-Tab Navigation (Weekly Quizzes | Test Series Mocks)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             color: Colors.white,
@@ -224,7 +455,7 @@ class _QuizzesTabState extends State<QuizzesTab> {
                     padding: EdgeInsets.zero,
                     children: [
                       // Upcoming Quiz Prep Banner
-                      if (upcomingQuiz != null) ...[
+                      if (upcomingQuiz.isNotEmpty) ...[
                         Container(
                           padding: const EdgeInsets.all(16),
                           color: const Color(0xFFFFF9EE),
@@ -275,7 +506,7 @@ class _QuizzesTabState extends State<QuizzesTab> {
                         )
                       else ...[
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -283,145 +514,81 @@ class _QuizzesTabState extends State<QuizzesTab> {
                                 _activeTypeIndex == 0 ? 'WEEKLY QUIZZES' : 'TEST SERIES MOCKS',
                                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: googleTextSecondary, letterSpacing: 0.6),
                               ),
-                              Text('${_quizzes.length} tests', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                              Text(
+                                '${pending.length} pending • ${completed.length} done',
+                                style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+                              ),
                             ],
                           ),
                         ),
-                        ..._quizzes.map((q) {
-                          final isDone = (q['status'] as String?)?.toUpperCase() == 'COMPLETED';
-                          final title = q['title'] ?? 'Quiz';
-                          final subject = q['subject'] ?? '';
-                          final module = q['module_name'] ?? '';
-                          final date = q['date_str'] ?? '';
-                          final marks = q['total_marks'] ?? 25;
-                          final dur = q['duration_mins'] ?? 45;
-                          final syllabus = q['syllabus_topics'] ?? '';
-                          final url = q['action_url'] as String?;
-                          final trapCount = _trapsCounts[q['id']] ?? 0;
 
-                          return Column(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(16, 12, 20, 12),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    GoogleCheckbox(
-                                      value: isDone,
-                                      onChanged: (val) => _toggleQuizStatus(q, val),
+                        // Active / Pending Quizzes
+                        if (pending.isNotEmpty) ...[
+                          ...pending.map((q) => _buildQuizRow(q, isCompleted: false)),
+                        ] else if (completed.isNotEmpty) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
+                            child: Center(
+                              child: Column(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: googleGreen.withOpacity(0.12),
+                                      shape: BoxShape.circle,
                                     ),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              if (subject.isNotEmpty)
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                  margin: const EdgeInsets.only(right: 6),
-                                                  decoration: BoxDecoration(
-                                                    color: const Color(0xFFF1F3F4),
-                                                    borderRadius: BorderRadius.circular(4),
-                                                  ),
-                                                  child: Text(
-                                                    subject.toUpperCase(),
-                                                    style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                                                  ),
-                                                ),
-                                              if (date.isNotEmpty)
-                                                Text(date, style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-                                              const Spacer(),
-                                              Text('${dur}m', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            title,
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                              color: isDone ? googleTextSecondary : googleTextPrimary,
-                                              decoration: isDone ? TextDecoration.lineThrough : null,
-                                            ),
-                                          ),
-                                          if (module.isNotEmpty) ...[
-                                            const SizedBox(height: 2),
-                                            Text(module, style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-                                          ],
-                                          if (trapCount > 0) ...[
-                                            const SizedBox(height: 6),
-                                            InkWell(
-                                              onTap: () => _showQuizTrapsSheet(q),
-                                              child: Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(0xFFFFF0D4),
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
-                                                child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    const Icon(Icons.error_outline, size: 12, color: googleAmber),
-                                                    const SizedBox(width: 4),
-                                                    Text(
-                                                      '$trapCount Logged Traps',
-                                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleAmber),
-                                                    ),
-                                                    const SizedBox(width: 4),
-                                                    const Icon(Icons.arrow_forward_ios, size: 10, color: googleAmber),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                          const SizedBox(height: 6),
-                                          Row(
-                                            children: [
-                                              Text('$marks Marks', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-                                              if (syllabus.isNotEmpty) ...[
-                                                const Text(' • ', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
-                                                Expanded(
-                                                  child: Text(
-                                                    syllabus,
-                                                    style: const TextStyle(fontSize: 11, color: googleTextSecondary),
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                              if (url != null && url.isNotEmpty) ...[
-                                                const SizedBox(width: 8),
-                                                InkWell(
-                                                  onTap: () => openExternalUrl(url),
-                                                  child: const Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      Text(
-                                                        'Start Quiz',
-                                                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
-                                                      ),
-                                                      SizedBox(width: 2),
-                                                      Icon(Icons.open_in_new, size: 12, color: googleBlue),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ],
-                                      ),
+                                    child: const Icon(Icons.task_alt_rounded, color: googleGreen, size: 28),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  const Text(
+                                    'All Quizzes Completed!',
+                                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'You have finished all active tests in this section.',
+                                    style: TextStyle(fontSize: 12, color: googleTextSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+
+                        // Completed Quizzes Section Accordion Toggle
+                        if (completed.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          InkWell(
+                            onTap: () {
+                              setState(() => _isCompletedExpanded = !_isCompletedExpanded);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _isCompletedExpanded
+                                        ? Icons.keyboard_arrow_down_rounded
+                                        : Icons.keyboard_arrow_right_rounded,
+                                    size: 20,
+                                    color: googleTextSecondary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Completed (${completed.length})',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: googleTextSecondary,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                              const Padding(
-                                padding: EdgeInsets.only(left: 56),
-                                child: Divider(height: 1, thickness: 1, color: googleHairline),
-                              ),
-                            ],
-                          );
-                        }),
+                            ),
+                          ),
+                          if (_isCompletedExpanded)
+                            ...completed.map((q) => _buildQuizRow(q, isCompleted: true)),
+                        ],
                       ],
                       const SizedBox(height: 80),
                     ],
@@ -429,23 +596,191 @@ class _QuizzesTabState extends State<QuizzesTab> {
           ),
         ],
       ),
-      floatingActionButton: widget.onOpenFilter != null
-          ? FloatingActionButton.small(
-              heroTag: 'quizzes_filter_fab',
-              elevation: 2,
-              backgroundColor: widget.selectedSubject != 'All Subjects' ? googleBlue : Colors.white,
-              foregroundColor: widget.selectedSubject != 'All Subjects' ? Colors.white : googleTextPrimary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: BorderSide(
-                  color: widget.selectedSubject != 'All Subjects' ? googleBlue : googleBorder,
+      floatingActionButton: FloatingActionButton.small(
+        heroTag: 'quizzes_filter_fab',
+        elevation: 2,
+        backgroundColor: widget.selectedSubject != 'All Subjects' ? googleBlue : Colors.white,
+        foregroundColor: widget.selectedSubject != 'All Subjects' ? Colors.white : googleTextPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: widget.selectedSubject != 'All Subjects' ? googleBlue : googleBorder,
+          ),
+        ),
+        tooltip: 'Sort & Filter Options',
+        onPressed: _showSortAndFilterSheet,
+        child: const Icon(Icons.tune_rounded, size: 20),
+      ),
+    );
+  }
+
+  Widget _buildQuizRow(Map<String, dynamic> q, {required bool isCompleted}) {
+    final title = q['title'] ?? 'Quiz';
+    final subject = q['subject'] ?? '';
+    final module = q['module_name'] ?? '';
+    final date = q['date_str'] ?? '';
+    final marks = q['total_marks'] ?? 25;
+    final dur = q['duration_mins'] ?? 45;
+    final syllabus = q['syllabus_topics'] ?? '';
+    final url = q['action_url'] as String?;
+    final trapCount = _trapsCounts[q['id']] ?? 0;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 20, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GoogleCheckbox(
+                value: isCompleted,
+                onChanged: (val) => _toggleQuizStatus(q, val),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (subject.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            margin: const EdgeInsets.only(right: 6),
+                            decoration: BoxDecoration(
+                              color: isCompleted ? const Color(0xFFF1F3F4) : googleBlue.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              subject.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: isCompleted ? googleTextSecondary : googleBlue,
+                              ),
+                            ),
+                          ),
+                        if (date.isNotEmpty)
+                          Text(
+                            date,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isCompleted ? googleBorder : googleTextSecondary,
+                              decoration: isCompleted ? TextDecoration.lineThrough : null,
+                            ),
+                          ),
+                        const Spacer(),
+                        Text(
+                          '${dur}m • $marks M',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isCompleted ? googleBorder : googleTextSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isCompleted ? googleTextSecondary : googleTextPrimary,
+                        decoration: isCompleted ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                    if (module.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        module,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isCompleted ? googleBorder : googleTextSecondary,
+                        ),
+                      ),
+                    ],
+                    if (syllabus.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        syllabus,
+                        style: TextStyle(fontSize: 11, color: googleTextSecondary.withOpacity(0.8)),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+
+                    // Actions Row
+                    Row(
+                      children: [
+                        if (url != null && url.isNotEmpty)
+                          InkWell(
+                            onTap: () => UrlHelper.launchURL(url),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: googleBlue),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.open_in_new, size: 12, color: googleBlue),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Take Test',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleBlue),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        const Spacer(),
+
+                        // Mistake Traps Pill
+                        InkWell(
+                          onTap: () => _showQuizTrapsSheet(q),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: trapCount > 0 ? severityHigh.withOpacity(0.12) : const Color(0xFFF1F3F4),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 13,
+                                  color: trapCount > 0 ? severityHigh : googleTextSecondary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  trapCount > 0 ? '$trapCount Blunders' : '0 Traps',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: trapCount > 0 ? severityHigh : googleTextSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              tooltip: 'Filter by Subject',
-              onPressed: widget.onOpenFilter,
-              child: const Icon(Icons.tune_rounded, size: 20),
-            )
-          : null,
+            ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(left: 56),
+          child: Divider(height: 1, thickness: 1, color: googleHairline),
+        ),
+      ],
     );
   }
 

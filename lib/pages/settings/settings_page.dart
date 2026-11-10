@@ -5,6 +5,7 @@ import 'package:tasks/pages/settings/schema_guide_page.dart';
 import 'package:tasks/services/app_update_service.dart';
 import 'package:tasks/services/cloud_sync_service.dart';
 import 'package:tasks/services/desktop_log_server_service.dart';
+import 'package:tasks/services/notification_service.dart';
 import 'package:tasks/utils/theme.dart';
 import 'package:tasks/utils/url_helper.dart';
 import 'package:tasks/widgets/top_banner_notification.dart';
@@ -454,6 +455,67 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Future<void> _requestNotificationPermission() async {
+    final granted = await NotificationService.instance.requestPermissions();
+    if (mounted) {
+      TopBanner.show(
+        context,
+        title: granted ? 'Permissions Granted' : 'Permissions Checked',
+        message: granted
+            ? 'Notifications & exact alarms are enabled.'
+            : 'Please allow notification permissions in device settings.',
+        icon: granted ? Icons.notifications_active_rounded : Icons.notifications_off_outlined,
+        color: granted ? googleGreen : googleAmber,
+      );
+    }
+  }
+
+  Future<void> _sendTestNotification() async {
+    await NotificationService.instance.showInstantNotification(
+      title: 'NYRO Study Alert',
+      body: 'Notifications are working! Alarms and channels are active.',
+    );
+    if (mounted) {
+      TopBanner.show(
+        context,
+        title: 'Test Notification Dispatched',
+        message: 'Check your status bar notification shade.',
+        icon: Icons.check_circle_outline_rounded,
+        color: googleBlue,
+      );
+    }
+  }
+
+  Future<void> _pickMorningBriefTime() async {
+    final parts = _morningBriefTime.split(':');
+    final initial = TimeOfDay(
+      hour: int.tryParse(parts[0]) ?? 5,
+      minute: parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0,
+    );
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked != null) {
+      final h = picked.hour.toString().padLeft(2, '0');
+      final m = picked.minute.toString().padLeft(2, '0');
+      setState(() => _morningBriefTime = '$h:$m');
+      await _saveAlertSettings();
+    }
+  }
+
+  Future<void> _pickShieldTime() async {
+    final parts = _shieldTime.split(':');
+    final initial = TimeOfDay(
+      hour: int.tryParse(parts[0]) ?? 21,
+      minute: parts.length > 1 ? (int.tryParse(parts[1]) ?? 30) : 30,
+    );
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked != null) {
+      final h = picked.hour.toString().padLeft(2, '0');
+      final m = picked.minute.toString().padLeft(2, '0');
+      setState(() => _shieldTime = '$h:$m');
+      await _saveAlertSettings();
+    }
+  }
+
   // ==========================================
   // MAIN SETTINGS VIEW: CATEGORIZED TILES
   // ==========================================
@@ -883,23 +945,135 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // --- Detail 4: Alerts ---
+  // --- Detail 4: Alerts & Notifications ---
   Widget _buildAlertsDetail() {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        // 1. Android System Permissions & Diagnostics
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'PERMISSIONS & SYSTEM INTEGRATION',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
+          ),
+        ),
+        _buildCardContainer(
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: googleBlue.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.security_rounded, color: googleBlue, size: 20),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('System Notification Access', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 2),
+                      Text('Required for on-time study bells and daily briefings', style: TextStyle(fontSize: 11.5, color: googleTextSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _requestNotificationPermission,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: googleBlue,
+                      side: const BorderSide(color: googleBorder),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    icon: const Icon(Icons.notifications_active_outlined, size: 16),
+                    label: const Text('Grant / Verify', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _sendTestNotification,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: googleBlue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    icon: const Icon(Icons.send_rounded, size: 16),
+                    label: const Text('Send Test Alert', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F3F4),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, size: 16, color: googleTextSecondary),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Ensure battery optimization is set to "Unrestricted" so alarms fire on time.',
+                      style: TextStyle(fontSize: 11, color: googleTextSecondary, height: 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        // 2. Daily Study Routine Schedules
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'DAILY STUDY ROUTINES',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
+          ),
+        ),
         _buildCardContainer(
           children: [
             // Morning Brief
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Morning Study Brief', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    Text('Scheduled at $_morningBriefTime AM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-                  ],
+                Expanded(
+                  child: InkWell(
+                    onTap: _pickMorningBriefTime,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Morning Study Brief', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Text('Scheduled at $_morningBriefTime AM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.edit_outlined, size: 13, color: googleBlue),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
                 Switch(
                   value: _morningBrief,
@@ -917,12 +1091,15 @@ class _SettingsPageState extends State<SettingsPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Spaced Recall Checkpoints', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    Text('Day 1, Day 4, Day 7 due reminders', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
-                  ],
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Spaced Recall Checkpoints', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 2),
+                      Text('Day 1, Day 4, Day 7 due reminders', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                    ],
+                  ),
                 ),
                 Switch(
                   value: _revisitAlerts,
@@ -940,12 +1117,25 @@ class _SettingsPageState extends State<SettingsPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Evening Backlog Shield', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                    Text('Scheduled at $_shieldTime PM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-                  ],
+                Expanded(
+                  child: InkWell(
+                    onTap: _pickShieldTime,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Evening Backlog Shield', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Text('Scheduled at $_shieldTime PM', style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.edit_outlined, size: 13, color: googleBlue),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
                 Switch(
                   value: _backlogShield,

@@ -32,8 +32,15 @@ class AppReleaseInfo {
 
   bool isNewerThan(String currentVersion) {
     try {
-      final curParts = currentVersion.replaceFirst(RegExp(r'^[vV]'), '').split('+').first.split('.').map(int.parse).toList();
-      final remoteParts = versionClean.split('+').first.split('.').map(int.parse).toList();
+      final curClean = currentVersion.replaceFirst(RegExp(r'^[vV]'), '').trim();
+      final remClean = versionClean.trim();
+      if (curClean == remClean) return false;
+
+      final curCore = curClean.split('+').first;
+      final remCore = remClean.split('+').first;
+
+      final curParts = curCore.split('.').map((p) => int.tryParse(p) ?? 0).toList();
+      final remoteParts = remCore.split('.').map((p) => int.tryParse(p) ?? 0).toList();
 
       final maxLen = curParts.length > remoteParts.length ? curParts.length : remoteParts.length;
       for (int i = 0; i < maxLen; i++) {
@@ -42,9 +49,15 @@ class AppReleaseInfo {
         if (rem > cur) return true;
         if (rem < cur) return false;
       }
+
+      // If semantic versions match, compare build numbers if present (e.g. +5 vs +4)
+      final curBuild = curClean.contains('+') ? int.tryParse(curClean.split('+').last) ?? 0 : 0;
+      final remBuild = remClean.contains('+') ? int.tryParse(remClean.split('+').last) ?? 0 : 0;
+      if (remBuild > curBuild) return true;
+
       return false;
     } catch (_) {
-      return versionClean != currentVersion;
+      return false;
     }
   }
 
@@ -108,7 +121,7 @@ class AppUpdateProgress {
 }
 
 class AppUpdateService {
-  static const String currentVersion = '1.0.3';
+  static const String currentVersion = '1.0.4';
   static const String defaultGithubRepo = 'Ragu-123/nyro-tasks';
   static const MethodChannel _nativeChannel = MethodChannel('io.github.thelazyindian.tasks/native');
 

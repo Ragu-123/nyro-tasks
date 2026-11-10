@@ -117,7 +117,7 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
       setState(() {
         _isSyncing = false;
         _syncStatusMessage = null;
-        _syncSuccessMessage = 'Uploaded android_nyro.db to King758/nyro-android-data!';
+        _syncSuccessMessage = 'Uploaded android_nyro.db to Hub dataset!';
       });
     } catch (e) {
       setState(() {
@@ -140,7 +140,7 @@ class _CloudSyncModalSheetState extends State<CloudSyncModalSheet> {
       builder: (ctx) => AlertDialog(
         title: const Text('Restore from Cloud Backup?', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: const Text(
-          'This will overwrite your current local database with the latest android_nyro.db from King758/nyro-android-data. Proceed?',
+          'This will overwrite your current local database with your latest database from Hugging Face Hub. Proceed?',
           style: TextStyle(fontSize: 13),
         ),
         actions: [

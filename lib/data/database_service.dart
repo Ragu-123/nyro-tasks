@@ -928,6 +928,35 @@ class DatabaseService {
     });
   }
 
+  Future<void> updateCustomReminder({
+    required int id,
+    required String text,
+    required DateTime remindAt,
+  }) async {
+    final db = await database;
+    await db.update(
+      'custom_reminders',
+      {
+        'text': text,
+        'remind_at': remindAt.toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> toggleReminderStatus(int id, bool completed) async {
+    final db = await database;
+    await db.update(
+      'custom_reminders',
+      {
+        'status': completed ? 'COMPLETED' : 'PENDING',
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> deleteCustomReminder(int id) async {
     final db = await database;
     await db.delete('custom_reminders', where: 'id = ?', whereArgs: [id]);

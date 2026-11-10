@@ -22,18 +22,24 @@ class TimetableTab extends StatefulWidget {
 class _TimetableTabState extends State<TimetableTab> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _lectures = [];
+  List<String> _availableSubjects = ['All Subjects'];
+  late String _activeSubject;
   bool _isLoading = true;
+  bool _isSearchVisible = false;
+  bool _isCompletedExpanded = false;
 
   @override
   void initState() {
     super.initState();
-    _loadCurriculum();
+    _activeSubject = widget.selectedSubject;
+    _loadSubjectsAndCurriculum();
   }
 
   @override
   void didUpdateWidget(covariant TimetableTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedSubject != widget.selectedSubject) {
+    if (oldWidget.selectedSubject != widget.selectedSubject && widget.selectedSubject != _activeSubject) {
+      _activeSubject = widget.selectedSubject;
       _loadCurriculum();
     }
   }
@@ -44,11 +50,24 @@ class _TimetableTabState extends State<TimetableTab> {
     super.dispose();
   }
 
+  Future<void> _loadSubjectsAndCurriculum() async {
+    final subjs = await DatabaseService.instance.getAllDistinctSubjects();
+    if (mounted) {
+      setState(() {
+        _availableSubjects = subjs.isNotEmpty ? subjs : ['All Subjects'];
+        if (!_availableSubjects.contains(_activeSubject)) {
+          _activeSubject = 'All Subjects';
+        }
+      });
+    }
+    await _loadCurriculum();
+  }
+
   Future<void> _loadCurriculum() async {
     setState(() => _isLoading = true);
     final items = await DatabaseService.instance.getCurriculumGroupedBySubject(
       query: _searchController.text,
-      subjectFilter: widget.selectedSubject,
+      subjectFilter: _activeSubject,
     );
     if (mounted) {
       setState(() {
@@ -64,7 +83,6 @@ class _TimetableTabState extends State<TimetableTab> {
     final dateStr = lec['date_str'] ?? '';
     DateTime date = DateTime.now();
     try {
-      // Try parsing date or fallback to now
       date = DateTime.parse(dateStr);
     } catch (_) {}
 
@@ -75,226 +93,392 @@ class _TimetableTabState extends State<TimetableTab> {
 
   @override
   Widget build(BuildContext context) {
+    // Separate pending vs completed lectures
+    final pending = _lectures.where((l) => (l['status'] as String?)?.toUpperCase() != 'COMPLETED').toList();
+    final completed = _lectures.where((l) => (l['status'] as String?)?.toUpperCase() == 'COMPLETED').toList();
+    final total = _lectures.length;
+    final pct = total > 0 ? (completed.length / total).clamp(0.0, 1.0) : 0.0;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         children: [
-          // Google Search Header (Flat on canvas)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Container(
-              height: 48,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F3F4),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
+          // 1. Fixed Top Subject Dropdown Bar with Search Action
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: googleHairline, width: 1)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    // Subject Dropdown Selector
+                    Expanded(
+                      child: Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F3F4),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: googleBorder.withOpacity(0.4)),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _availableSubjects.contains(_activeSubject) ? _activeSubject : 'All Subjects',
+                            isExpanded: true,
+                            icon: const Icon(Icons.keyboard_arrow_down_rounded, color: googleTextPrimary, size: 20),
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: googleTextPrimary,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            items: _availableSubjects.map((s) {
+                              return DropdownMenuItem<String>(
+                                value: s,
+                                child: Text(
+                                  s,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setState(() {
+                                  _activeSubject = val;
+                                });
+                                _loadCurriculum();
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+
+                    // Search Lectures Icon Button
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _isSearchVisible || _searchController.text.isNotEmpty
+                            ? googleBlue.withOpacity(0.12)
+                            : const Color(0xFFF1F3F4),
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      child: IconButton(
+                        icon: Icon(
+                          _isSearchVisible ? Icons.search_off_rounded : Icons.search_rounded,
+                          color: _isSearchVisible || _searchController.text.isNotEmpty ? googleBlue : googleTextSecondary,
+                          size: 20,
+                        ),
+                        tooltip: 'Search lectures in this subject',
+                        onPressed: () {
+                          setState(() {
+                            _isSearchVisible = !_isSearchVisible;
+                            if (!_isSearchVisible && _searchController.text.isNotEmpty) {
+                              _searchController.clear();
+                              _loadCurriculum();
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Expandable Search Bar (when search icon is tapped)
+                if (_isSearchVisible) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    height: 42,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFD),
+                      borderRadius: BorderRadius.circular(21),
+                      border: Border.all(color: googleBlue.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.search, size: 18, color: googleBlue),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            autofocus: true,
+                            onChanged: (_) => _loadCurriculum(),
+                            style: const TextStyle(fontSize: 13, color: googleTextPrimary),
+                            decoration: InputDecoration(
+                              hintText: 'Search in ${_activeSubject == "All Subjects" ? "curriculum" : _activeSubject}...',
+                              hintStyle: const TextStyle(fontSize: 12.5, color: googleTextSecondary),
+                              border: InputBorder.none,
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                        if (_searchController.text.isNotEmpty)
+                          GestureDetector(
+                            onTap: () {
+                              _searchController.clear();
+                              _loadCurriculum();
+                            },
+                            child: const Icon(Icons.clear, size: 16, color: googleTextSecondary),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // 2. Subject Progress Summary
+          if (!_isLoading && _lectures.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              color: const Color(0xFFFAFBFC),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(width: 16),
-                  const Icon(Icons.search, color: googleTextSecondary, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (_) => _loadCurriculum(),
-                      decoration: const InputDecoration(
-                        hintText: 'Search lectures, topics, dates...',
-                        hintStyle: TextStyle(fontSize: 14, color: googleTextSecondary),
-                        border: InputBorder.none,
-                        isDense: true,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _activeSubject.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: googleTextSecondary,
+                            letterSpacing: 0.6,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Text(
+                        '${completed.length}/$total (${(pct * 100).toInt()}%)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: pct == 1.0 ? googleGreen : googleBlue,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: pct,
+                      minHeight: 5,
+                      backgroundColor: const Color(0xFFE8EAED),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        pct == 1.0 ? googleGreen : googleBlue,
                       ),
                     ),
                   ),
-                  if (_searchController.text.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.clear, size: 18, color: googleTextSecondary),
-                      onPressed: () {
-                        _searchController.clear();
-                        _loadCurriculum();
-                      },
-                    ),
-                  const SizedBox(width: 8),
                 ],
               ),
             ),
-          ),
-          const Divider(height: 1, thickness: 1, color: googleHairline),
 
-          // Curriculum Hierarchy
+          // 3. Lectures List: Pending first, followed by Completed Accordion Toggle
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: googleBlue))
                 : _lectures.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No lectures match your search or filter.',
-                          style: TextStyle(fontSize: 14, color: googleTextSecondary),
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.menu_book_outlined, size: 48, color: googleTextSecondary.withOpacity(0.5)),
+                            const SizedBox(height: 12),
+                            Text(
+                              _searchController.text.isNotEmpty
+                                  ? 'No lectures match "${_searchController.text}"'
+                                  : 'No lectures found in $_activeSubject.',
+                              style: const TextStyle(fontSize: 13, color: googleTextSecondary),
+                            ),
+                          ],
                         ),
                       )
-                    : _buildGroupedCurriculum(),
+                    : ListView(
+                        padding: const EdgeInsets.only(bottom: 80),
+                        children: [
+                          // Pending Lectures
+                          if (pending.isNotEmpty) ...[
+                            ...pending.map((lec) => _buildLectureRow(lec, isCompleted: false)),
+                          ] else if (completed.isNotEmpty) ...[
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
+                              child: Center(
+                                child: Column(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: googleGreen.withOpacity(0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.task_alt_rounded, color: googleGreen, size: 28),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    const Text(
+                                      'All Lectures Completed!',
+                                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Great work! You have finished all syllabus lectures for this subject.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(fontSize: 12, color: googleTextSecondary),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+
+                          // Completed Section Accordion (like Today page)
+                          if (completed.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            InkWell(
+                              onTap: () {
+                                setState(() => _isCompletedExpanded = !_isCompletedExpanded);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _isCompletedExpanded
+                                          ? Icons.keyboard_arrow_down_rounded
+                                          : Icons.keyboard_arrow_right_rounded,
+                                      size: 20,
+                                      color: googleTextSecondary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Completed (${completed.length})',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: googleTextSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (_isCompletedExpanded)
+                              ...completed.map((lec) => _buildLectureRow(lec, isCompleted: true)),
+                          ],
+                        ],
+                      ),
           ),
         ],
       ),
-      floatingActionButton: widget.onOpenFilter != null
-          ? FloatingActionButton.small(
-              heroTag: 'timetable_filter_fab',
-              elevation: 2,
-              backgroundColor: widget.selectedSubject != 'All Subjects' ? googleBlue : Colors.white,
-              foregroundColor: widget.selectedSubject != 'All Subjects' ? Colors.white : googleTextPrimary,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-                side: BorderSide(
-                  color: widget.selectedSubject != 'All Subjects' ? googleBlue : googleBorder,
-                ),
-              ),
-              tooltip: 'Filter by Subject',
-              onPressed: widget.onOpenFilter,
-              child: const Icon(Icons.tune_rounded, size: 20),
-            )
-          : null,
     );
   }
 
-  Widget _buildGroupedCurriculum() {
-    // Group lectures by Subject
-    final subjectGroups = <String, List<Map<String, dynamic>>>{};
-    for (var l in _lectures) {
-      final topic = l['topic'] as String? ?? 'General';
-      final subject = topic.contains('•') ? topic.split('•')[0].trim() : topic.trim();
-      subjectGroups.putIfAbsent(subject, () => []).add(l);
-    }
+  Widget _buildLectureRow(Map<String, dynamic> lec, {required bool isCompleted}) {
+    final title = lec['details'] ?? lec['topic'] ?? 'Lecture';
+    final topic = lec['topic'] ?? '';
+    final dateStr = lec['date_str'] ?? '';
+    final dur = (lec['duration_hours'] as num?)?.toDouble() ?? 1.0;
+    final status = lec['status'] as String? ?? 'PENDING';
 
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 80),
-      itemCount: subjectGroups.length,
-      itemBuilder: (context, index) {
-        final subject = subjectGroups.keys.elementAt(index);
-        final items = subjectGroups[subject]!;
-        final completed = items.where((l) => (l['status'] as String?)?.toUpperCase() == 'COMPLETED').length;
-        final total = items.length;
-        final pct = total > 0 ? (completed / total).clamp(0.0, 1.0) : 0.0;
-
-        return Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            initiallyExpanded: index == 0,
-            tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    subject.toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: googleTextPrimary,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                Text(
-                  '$completed/$total (${(pct * 100).toInt()}%)',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: googleBlue),
-                ),
-              ],
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: LinearProgressIndicator(
-                  value: pct,
-                  minHeight: 4,
-                  backgroundColor: const Color(0xFFF1F3F4),
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    pct == 1.0 ? googleGreen : googleBlue,
-                  ),
-                ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 20, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GoogleCheckbox(
+                value: isCompleted,
+                onChanged: (val) => _toggleLecture(lec, val),
               ),
-            ),
-            children: items.map((lec) {
-              final isCompleted = (lec['status'] as String?)?.toUpperCase() == 'COMPLETED';
-              final title = lec['details'] ?? lec['topic'] ?? 'Lecture';
-              final topic = lec['topic'] ?? '';
-              final dateStr = lec['date_str'] ?? '';
-              final dur = (lec['duration_hours'] as num?)?.toDouble() ?? 1.0;
-              final status = lec['status'] as String? ?? 'PENDING';
-
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 20, 10),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: isCompleted ? googleTextSecondary : googleTextPrimary,
+                        decoration: isCompleted ? TextDecoration.lineThrough : null,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
                       children: [
-                        GoogleCheckbox(
-                          value: isCompleted,
-                          onChanged: (val) => _toggleLecture(lec, val),
-                        ),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: isCompleted ? googleTextSecondary : googleTextPrimary,
-                                  decoration: isCompleted ? TextDecoration.lineThrough : null,
-                                  height: 1.25,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  if (dateStr.isNotEmpty) ...[
-                                    Text(
-                                      dateStr,
-                                      style: const TextStyle(fontSize: 11, color: googleTextSecondary),
-                                    ),
-                                    const Text(' • ', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
-                                  ],
-                                  Text(
-                                    '${dur.toStringAsFixed(1)}h',
-                                    style: const TextStyle(fontSize: 11, color: googleTextSecondary),
-                                  ),
-                                  if (status == 'BACKLOG') ...[
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFFF0D4),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Text(
-                                        'BACKLOG',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold,
-                                          color: googleAmber,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ],
+                        if (_activeSubject == 'All Subjects' && topic.isNotEmpty) ...[
+                          Text(
+                            topic.contains('•') ? topic.split('•')[0].trim() : topic,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isCompleted ? googleTextSecondary : googleBlue,
+                            ),
+                          ),
+                          const Text(' • ', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                        ],
+                        if (dateStr.isNotEmpty) ...[
+                          Text(
+                            dateStr,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isCompleted ? googleBorder : googleTextSecondary,
+                              decoration: isCompleted ? TextDecoration.lineThrough : null,
+                            ),
+                          ),
+                          const Text(' • ', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                        ],
+                        Text(
+                          '${dur.toStringAsFixed(1)}h',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isCompleted ? googleBorder : googleTextSecondary,
                           ),
                         ),
+                        if (status == 'BACKLOG' && !isCompleted) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF0D4),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'BACKLOG',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: googleAmber,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.only(left: 56),
-                    child: Divider(height: 1, thickness: 1, color: googleHairline),
-                  ),
-                ],
-              );
-            }).toList(),
+                  ],
+                ),
+              ),
+            ],
           ),
-        );
-      },
+        ),
+        const Padding(
+          padding: EdgeInsets.only(left: 56),
+          child: Divider(height: 1, thickness: 1, color: googleHairline),
+        ),
+      ],
     );
   }
 }

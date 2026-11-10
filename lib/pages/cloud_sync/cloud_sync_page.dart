@@ -100,7 +100,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
       if (_createNewRepo) {
         await CloudSyncService.instance.createHfDatasetRepo(
           token: token,
-          repoName: repo,
+          repoName: effectiveRepo,
           isPrivate: true,
         );
       }

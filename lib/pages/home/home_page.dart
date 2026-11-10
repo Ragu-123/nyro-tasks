@@ -12,6 +12,7 @@ import 'package:tasks/data/database_service.dart';
 import 'package:tasks/services/notification_service.dart';
 import 'package:tasks/services/desktop_log_server_service.dart';
 import 'package:tasks/services/app_update_service.dart';
+import 'package:tasks/pages/alerts/alerts_page.dart';
 import 'package:tasks/widgets/alerts_modal_sheet.dart';
 import 'package:tasks/widgets/subject_filter_modal_sheet.dart';
 import 'package:tasks/widgets/notifications_history_sheet.dart';
@@ -1006,19 +1007,21 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // --- Alerts & Study Routine Sheet ---
+  // --- Alerts & Alarms Full Page ---
 
-  void _showAlertsSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => AlertsModalSheet(
-        onDataChanged: _loadGlobalData,
-        onOpenAddReminder: _showNewTaskBottomSheet,
+  void _openAlertsPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AlertsPage(
+          onDataChanged: _loadGlobalData,
+          onOpenAddReminder: _showNewTaskBottomSheet,
+        ),
       ),
     );
   }
+
+  void _showAlertsSheet() => _openAlertsPage();
 
   // --- Notifications History Sheet ---
 
@@ -1302,7 +1305,7 @@ class _HomePageState extends State<HomePage> {
           TimetableTab(
             onDataChanged: _loadGlobalData,
             selectedSubject: _selectedSubject,
-            onOpenFilter: _showSubjectFilterSheet,
+            availableSubjects: _availableSubjects,
           ),
           RevisitTab(
             onDataChanged: _loadGlobalData,
