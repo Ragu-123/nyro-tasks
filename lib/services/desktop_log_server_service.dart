@@ -1,19 +1,29 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:tasks/data/database_service.dart';
+import 'package:tasks/services/app_update_service.dart';
 
 class DesktopLogServerService {
   static final DesktopLogServerService instance = DesktopLogServerService._internal();
-  DesktopLogServerService._internal();
+  DesktopLogServerService._internal() {
+    _generateNewPinInternal();
+  }
 
   HttpServer? _server;
   String? _localIp;
   int _port = 8080;
 
-  // Stream controller to notify the Flutter UI when a mistake is received from laptop
+  // 6-digit Authenticator Wi-Fi Shield PIN
+  String _pairingPin = '123456';
+  final Set<String> _activeSessions = <String>{};
+  int _failedAttempts = 0;
+  DateTime? _lockoutUntil;
+
+  // Stream controller to notify Flutter UI when a mistake is received from desktop
   final StreamController<Map<String, dynamic>> _mistakeStreamController =
       StreamController<Map<String, dynamic>>.broadcast();
 
@@ -23,6 +33,54 @@ class DesktopLogServerService {
   String? get serverUrl => isRunning && _localIp != null ? 'http://$_localIp:$_port' : null;
   String? get localIp => _localIp;
   int get port => _port;
+  String get pairingPin => _pairingPin;
+
+  String generateNewPin() {
+    final pin = _generateNewPinInternal();
+    // Revoke all existing sessions so laptop must re-verify
+    _activeSessions.clear();
+    _failedAttempts = 0;
+    _lockoutUntil = null;
+    return pin;
+  }
+
+  String _generateNewPinInternal() {
+    final rand = Random.secure();
+    final pinNum = 100000 + rand.nextInt(900000);
+    _pairingPin = pinNum.toString();
+    return _pairingPin;
+  }
+
+  String? verifyPin(String inputPin) {
+    final now = DateTime.now();
+    if (_lockoutUntil != null && now.isBefore(_lockoutUntil!)) {
+      final waitSecs = _lockoutUntil!.difference(now).inSeconds;
+      throw Exception('Too many failed attempts. Locked for $waitSecs seconds.');
+    }
+
+    final cleanInput = inputPin.trim().replaceAll(RegExp(r'\s+'), '');
+    if (cleanInput == _pairingPin) {
+      _failedAttempts = 0;
+      _lockoutUntil = null;
+      // Generate secure 32-character hex session token
+      final rand = Random.secure();
+      final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
+      final token = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      _activeSessions.add(token);
+      return token;
+    } else {
+      _failedAttempts++;
+      if (_failedAttempts >= 5) {
+        _lockoutUntil = now.add(const Duration(minutes: 1));
+      }
+      return null;
+    }
+  }
+
+  bool isSessionValid(String? token) {
+    if (token == null || token.isEmpty) return false;
+    return _activeSessions.contains(token.trim());
+  }
 
   Future<String?> getDeviceIp() async {
     try {
@@ -69,7 +127,7 @@ class DesktopLogServerService {
       _handleRequest(request);
     });
 
-    debugPrint('Desktop Log Server running at http://$_localIp:$_port');
+    debugPrint('Desktop Log Server running at http://$_localIp:$_port (PIN: $_pairingPin)');
     return serverUrl;
   }
 
@@ -78,13 +136,14 @@ class DesktopLogServerService {
       await _server?.close(force: true);
     } catch (_) {}
     _server = null;
+    _activeSessions.clear();
     debugPrint('Desktop Log Server stopped');
   }
 
   void _handleRequest(HttpRequest request) async {
     // Add CORS headers for desktop browser flexibility
     request.response.headers.add('Access-Control-Allow-Origin', '*');
-    request.response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    request.response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     request.response.headers.add('Access-Control-Allow-Headers', 'Origin, Content-Type, Accept, Authorization');
 
     if (request.method == 'OPTIONS') {
@@ -94,37 +153,171 @@ class DesktopLogServerService {
     }
 
     final path = request.uri.path;
+    final authHeader = request.headers.value('Authorization');
+    String? token;
+    if (authHeader != null && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7).trim();
+    }
+    final isAuthenticated = isSessionValid(token);
 
+    // 1. Root Portal & Static Assets (Unauthenticated)
     if (request.method == 'GET' && (path == '/' || path == '/index.html')) {
       _serveWebPortal(request);
-    } else if (request.method == 'GET' && path == '/api/status') {
+      return;
+    }
+
+    // 2. Auth Verification Endpoint (Public)
+    if (request.method == 'POST' && path == '/api/auth/verify') {
+      await _handleAuthVerify(request);
+      return;
+    }
+
+    // 3. Auth Status Check (Public)
+    if (request.method == 'GET' && path == '/api/auth/status') {
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'authenticated': isAuthenticated}));
+      await request.response.close();
+      return;
+    }
+
+    // 4. Server Status Endpoint (Public)
+    if (request.method == 'GET' && path == '/api/status') {
       final data = {
         'status': 'online',
         'app': 'NYRO Tasks Copilot',
-        'version': '1.0.0',
+        'version': AppUpdateService.currentVersion,
         'ip': _localIp,
         'port': _port,
+        'authenticated': isAuthenticated,
       };
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode(data));
       await request.response.close();
-    } else if (request.method == 'GET' && path == '/api/subjects') {
+      return;
+    }
+
+    // --- PROTECTED ROUTES: Require 6-digit Authenticator Session ---
+    if (!isAuthenticated) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({
+        'error': 'Unauthorized',
+        'message': 'Please enter the 6-digit PIN displayed on your phone app to access this service.',
+      }));
+      await request.response.close();
+      return;
+    }
+
+    // 5. Distinct Subjects List
+    if (request.method == 'GET' && path == '/api/subjects') {
       final subjs = await DatabaseService.instance.getAllDistinctSubjects();
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode({'subjects': subjs.where((s) => s != 'All Subjects').toList()}));
       await request.response.close();
-    } else if (request.method == 'GET' && path == '/api/mistakes') {
-      final mistakes = await DatabaseService.instance.getMistakeRecordsFiltered();
+      return;
+    }
+
+    // 6. Mistakes API
+    if (request.method == 'GET' && path == '/api/mistakes') {
+      final subjectFilter = request.uri.queryParameters['subject'];
+      final severityFilter = request.uri.queryParameters['severity'];
+      final search = request.uri.queryParameters['search'];
+
+      final mistakes = await DatabaseService.instance.getMistakeRecordsFiltered(
+        subject: subjectFilter,
+        severity: severityFilter,
+        searchQuery: search,
+      );
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode({'mistakes': mistakes}));
       await request.response.close();
-    } else if (request.method == 'POST' && path == '/api/mistakes') {
-      await _handlePostMistake(request);
-    } else {
-      request.response.statusCode = HttpStatus.notFound;
-      request.response.write('Not Found');
-      await request.response.close();
+      return;
     }
+
+    // 7. Post Mistake Log
+    if (request.method == 'POST' && path == '/api/mistakes') {
+      await _handlePostMistake(request);
+      return;
+    }
+
+    // 8. Toggle Resolved Status
+    if (request.method == 'PATCH' && path.startsWith('/api/mistakes/') && path.endsWith('/resolve')) {
+      final parts = path.split('/');
+      final id = int.tryParse(parts[3]);
+      if (id != null) {
+        final bodyStr = await utf8.decodeStream(request);
+        final Map<String, dynamic> data = jsonDecode(bodyStr);
+        final isResolved = data['resolved'] as bool? ?? true;
+        await DatabaseService.instance.toggleMistakeResolved(id, isResolved);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'success': true, 'id': id, 'resolved': isResolved}));
+        await request.response.close();
+        return;
+      }
+    }
+
+    // 9. Delete Mistake Record
+    if (request.method == 'DELETE' && path.startsWith('/api/mistakes/')) {
+      final parts = path.split('/');
+      final id = int.tryParse(parts.last);
+      if (id != null) {
+        await DatabaseService.instance.deleteMistakeRecord(id);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'success': true, 'id': id}));
+        await request.response.close();
+        return;
+      }
+    }
+
+    // 10. Serve Saved Screenshots
+    if (request.method == 'GET' && path.startsWith('/api/images/')) {
+      final imageName = path.substring('/api/images/'.length);
+      final docsDir = await getApplicationDocumentsDirectory();
+      final imageFile = File('${docsDir.path}/$imageName');
+      if (await imageFile.exists()) {
+        request.response.headers.contentType = ContentType('image', 'jpeg');
+        await imageFile.openRead().pipe(request.response);
+        return;
+      }
+    }
+
+    request.response.statusCode = HttpStatus.notFound;
+    request.response.write('Not Found');
+    await request.response.close();
+  }
+
+  Future<void> _handleAuthVerify(HttpRequest request) async {
+    try {
+      final bodyStr = await utf8.decodeStream(request);
+      final Map<String, dynamic> data = jsonDecode(bodyStr);
+      final inputPin = data['pin']?.toString() ?? '';
+
+      final token = verifyPin(inputPin);
+      if (token != null) {
+        request.response.statusCode = HttpStatus.ok;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'success': true,
+          'token': token,
+          'message': 'Successfully authenticated with phone Wi-Fi shield!',
+        }));
+      } else {
+        request.response.statusCode = HttpStatus.forbidden;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'success': false,
+          'error': 'Invalid 6-digit PIN. Check the code displayed in your phone app.',
+        }));
+      }
+    } catch (e) {
+      request.response.statusCode = HttpStatus.tooManyRequests;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({
+        'success': false,
+        'error': e.toString().replaceAll('Exception: ', ''),
+      }));
+    }
+    await request.response.close();
   }
 
   Future<void> _handlePostMistake(HttpRequest request) async {
@@ -144,13 +337,14 @@ class DesktopLogServerService {
       final imageBase64 = data['image_base64'] as String?;
 
       String? savedImagePath;
+      String? savedFileName;
       if (imageBase64 != null && imageBase64.isNotEmpty) {
         try {
           final cleanBase64 = imageBase64.contains(',') ? imageBase64.split(',').last : imageBase64;
           final bytes = base64Decode(cleanBase64);
           final docsDir = await getApplicationDocumentsDirectory();
-          final fileName = 'blunder_desktop_${DateTime.now().millisecondsSinceEpoch}.jpg';
-          final file = File('${docsDir.path}/$fileName');
+          savedFileName = 'blunder_desktop_${DateTime.now().millisecondsSinceEpoch}.jpg';
+          final file = File('${docsDir.path}/$savedFileName');
           await file.writeAsBytes(bytes);
           savedImagePath = file.path;
         } catch (e) {
@@ -159,8 +353,8 @@ class DesktopLogServerService {
       }
 
       String finalTakeaway = keyTakeaway;
-      if (savedImagePath != null) {
-        finalTakeaway += '\n\n![Screenshot]($savedImagePath)';
+      if (savedFileName != null) {
+        finalTakeaway += '\n\n![Screenshot](/api/images/$savedFileName)';
       }
 
       final id = await DatabaseService.instance.insertMistakeRecord(
@@ -198,6 +392,7 @@ class DesktopLogServerService {
         'success': true,
         'message': 'Mistake record successfully logged into NYRO Tasks app!',
         'id': id,
+        'saved_image': savedFileName != null ? '/api/images/$savedFileName' : null,
       }));
       await request.response.close();
     } catch (e) {
@@ -210,13 +405,14 @@ class DesktopLogServerService {
   }
 
   void _serveWebPortal(HttpRequest request) {
+    final version = AppUpdateService.currentVersion;
     final html = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NYRO Tasks - Laptop Blunder & Mistake Logger</title>
+  <title>NYRO Tasks • Desktop Mistake Studio</title>
   <style>
     :root {
       --bg: #F8FAFC;
@@ -225,54 +421,127 @@ class DesktopLogServerService {
       --subtext: #64748B;
       --blue: #1A73E8;
       --blue-hover: #1557B0;
+      --blue-subtle: #E8F0FE;
       --border: #E2E8F0;
-      --accent: #E8F0FE;
+      --border-dark: #CBD5E1;
       --red: #DC2626;
       --red-bg: #FEF2F2;
       --green: #16A34A;
       --green-bg: #F0FDF4;
+      --amber: #D97706;
+      --amber-bg: #FEF3C7;
+      --code-bg: #F1F5F9;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
       background-color: var(--bg);
       color: var(--text);
-      padding: 24px 16px;
-      display: flex;
-      justify-content: center;
       line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
-    .container {
-      width: 100%;
-      max-width: 840px;
-      background: var(--card);
-      border-radius: 16px;
-      border: 1px solid var(--border);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-      padding: 28px;
+    .app-nav {
+      background: #FFFFFF;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
     }
-    .header {
+    .nav-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 64px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 16px;
-      margin-bottom: 24px;
     }
-    .title-box { display: flex; align-items: center; gap: 12px; }
-    .logo-badge {
-      width: 40px; height: 40px; background: var(--blue); color: #fff;
-      border-radius: 10px; display: flex; align-items: center; justify-content: center;
-      font-weight: 800; font-size: 20px;
+    .brand-group { display: flex; align-items: center; gap: 14px; }
+    .brand-icon {
+      width: 36px; height: 36px; background: var(--blue); color: #fff;
+      border-radius: 9px; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 18px;
     }
-    h1 { font-size: 20px; font-weight: 700; }
-    p.subtitle { font-size: 13px; color: var(--subtext); margin-top: 2px; }
-    .status-badge {
+    .brand-title { font-size: 16px; font-weight: 700; color: var(--text); }
+    .brand-version { font-size: 11px; background: var(--blue-subtle); color: var(--blue); padding: 2px 8px; border-radius: 12px; font-weight: 600; margin-left: 6px; }
+
+    .nav-tabs { display: flex; gap: 4px; background: #F1F5F9; padding: 4px; border-radius: 10px; }
+    .tab-btn {
+      border: none; background: transparent; padding: 8px 18px; border-radius: 8px;
+      font-size: 13.5px; font-weight: 600; color: var(--subtext); cursor: pointer;
+      display: flex; align-items: center; gap: 8px; transition: all 0.15s ease;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { background: #FFFFFF; color: var(--blue); box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .tab-badge { font-size: 11px; background: var(--blue); color: #fff; padding: 1px 7px; border-radius: 10px; font-weight: 700; }
+
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+    .status-pill {
       display: flex; align-items: center; gap: 6px; font-size: 12px;
       background: var(--green-bg); color: var(--green); font-weight: 600;
-      padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(22,163,74,0.25);
+      padding: 5px 12px; border-radius: 20px; border: 1px solid rgba(22,163,74,0.2);
     }
-    .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; }
+    .status-dot { width: 7px; height: 7px; background: var(--green); border-radius: 50%; }
+    .shield-btn {
+      border: 1px solid var(--border); background: #fff; border-radius: 8px;
+      padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--subtext);
+      cursor: pointer; display: flex; align-items: center; gap: 6px;
+    }
+    .shield-btn:hover { background: #F8FAFC; color: var(--red); border-color: #FECACA; }
+
+    /* Main Container */
+    .main-wrap {
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px;
+      flex: 1;
+    }
+
+    /* Views */
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* Logger View */
+    .log-layout {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 24px;
+    }
+    .side-card, .form-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+    }
+    .card-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .card-subtitle { font-size: 12.5px; color: var(--subtext); margin-bottom: 20px; }
+
+    .paste-zone {
+      border: 2px dashed #93C5FD;
+      background: var(--blue-subtle);
+      border-radius: 12px;
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      margin-bottom: 16px;
+      transition: all 0.2s;
+    }
+    .paste-zone:hover { background: #DBEAFE; }
+    .paste-zone.has-image { border-style: solid; border-color: var(--blue); padding: 12px; }
+    .paste-zone p.main-text { font-size: 13.5px; font-weight: 600; color: var(--blue); }
+    .paste-zone p.sub-text { font-size: 11.5px; color: var(--subtext); margin-top: 4px; }
+    .preview-box { margin-top: 10px; display: none; position: relative; }
+    .preview-box img { max-height: 160px; max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+    .remove-img {
+      position: absolute; top: -6px; right: -6px; background: var(--red); color: #fff;
+      border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer;
+      font-size: 12px; font-weight: bold; line-height: 22px;
+    }
 
     .form-grid {
       display: grid;
@@ -280,10 +549,10 @@ class DesktopLogServerService {
       gap: 16px;
       margin-bottom: 16px;
     }
-    .full-width { grid-column: 1 / -1; }
+    .col-full { grid-column: 1 / -1; }
     label {
-      display: block; font-size: 12.5px; font-weight: 600; color: var(--subtext);
-      margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px;
+      display: block; font-size: 11.5px; font-weight: 700; color: var(--subtext);
+      margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
     }
     input, select, textarea {
       width: 100%; padding: 10px 14px; border: 1.5px solid var(--border);
@@ -294,230 +563,817 @@ class DesktopLogServerService {
       border-color: var(--blue);
       box-shadow: 0 0 0 3px rgba(26,115,232,0.12);
     }
-    textarea { resize: vertical; min-height: 80px; }
+    textarea { resize: vertical; min-height: 85px; }
 
-    /* Paste Dropzone */
-    .paste-zone {
-      border: 2px dashed #93C5FD;
-      background: var(--accent);
-      border-radius: 12px;
-      padding: 20px;
-      text-align: center;
-      cursor: pointer;
-      position: relative;
-      margin-bottom: 18px;
-      transition: all 0.2s;
-    }
-    .paste-zone:hover { background: #DBEAFE; }
-    .paste-zone p.main-text { font-size: 14px; font-weight: 600; color: var(--blue); }
-    .paste-zone p.sub-text { font-size: 12px; color: var(--subtext); margin-top: 4px; }
-    .preview-box {
-      margin-top: 12px; display: none; align-items: center; justify-content: center;
-      position: relative;
-    }
-    .preview-box img {
-      max-height: 180px; max-width: 100%; border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid var(--border);
-    }
-    .remove-btn {
-      position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.7);
-      color: #fff; border: none; border-radius: 50%; width: 24px; height: 24px;
-      cursor: pointer; font-size: 14px; line-height: 24px; text-align: center;
-    }
-
-    .btn-row { display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; }
-    button.submit-btn {
+    button.btn-primary {
       background: var(--blue); color: #fff; border: none; border-radius: 8px;
       padding: 12px 28px; font-size: 14px; font-weight: 700; cursor: pointer;
-      display: flex; align-items: center; gap: 8px; transition: background 0.15s;
+      display: inline-flex; align-items: center; gap: 8px; transition: background 0.15s;
     }
-    button.submit-btn:hover { background: var(--blue-hover); }
-    button.submit-btn:disabled { background: #94A3B8; cursor: not-allowed; }
+    button.btn-primary:hover { background: var(--blue-hover); }
+    button.btn-primary:disabled { background: #94A3B8; cursor: not-allowed; }
 
-    .toast {
-      position: fixed; top: 20px; right: 20px; background: #0F172A; color: #fff;
-      padding: 12px 20px; border-radius: 8px; font-size: 13.5px; font-weight: 600;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: none; z-index: 999;
+    /* Mistake Reviewer / Explorer View */
+    .filter-bar {
+      background: #FFFFFF;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
     }
+    .search-box {
+      flex: 1;
+      min-width: 280px;
+      position: relative;
+    }
+    .search-box input {
+      padding-left: 36px;
+      height: 40px;
+      font-size: 13.5px;
+    }
+    .search-icon {
+      position: absolute; left: 12px; top: 12px; color: var(--subtext); font-size: 16px;
+    }
+    .filter-group { display: flex; gap: 8px; align-items: center; }
+    .filter-select { height: 40px; padding: 0 12px; min-width: 180px; }
 
-    .recent-header {
-      margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border);
-      font-size: 15px; font-weight: 700; color: var(--text); display: flex;
-      justify-content: space-between; align-items: center;
+    .stat-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
     }
-    .recent-list { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
-    .blunder-card {
-      padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px;
-      background: #F8FAFC; display: flex; justify-content: space-between; align-items: center;
+    .stat-card {
+      background: #FFFFFF;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
     }
-    .blunder-card h4 { font-size: 13.5px; font-weight: 600; }
-    .blunder-card p { font-size: 12px; color: var(--subtext); margin-top: 2px; }
+    .stat-label { font-size: 11.5px; color: var(--subtext); font-weight: 600; text-transform: uppercase; }
+    .stat-val { font-size: 22px; font-weight: 800; color: var(--text); margin-top: 2px; }
+
+    .mistake-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .feed-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: box-shadow 0.15s;
+    }
+    .feed-card:hover {
+      box-shadow: 0 4px 14px rgba(0,0,0,0.05);
+      border-color: var(--border-dark);
+    }
+    .feed-card.resolved { opacity: 0.7; background: #F8FAFC; }
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .badge-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .subj-pill {
+      font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 12px;
+      background: var(--blue-subtle); color: var(--blue);
+    }
     .sev-pill {
-      font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 12px;
+      font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 12px;
       text-transform: uppercase;
     }
-    .sev-HIGH { background: #FEE2E2; color: #DC2626; }
-    .sev-MEDIUM { background: #FEF3C7; color: #D97706; }
-    .sev-LOW { background: #E0E7FF; color: #4338CA; }
+    .sev-HIGH { background: var(--red-bg); color: var(--red); }
+    .sev-MEDIUM { background: var(--amber-bg); color: var(--amber); }
+    .sev-LOW { background: var(--blue-subtle); color: var(--blue); }
+    .quiz-pill { font-size: 11px; background: #F1F5F9; color: var(--subtext); padding: 3px 8px; border-radius: 6px; }
+    .date-str { font-size: 12px; color: var(--subtext); }
+
+    .q-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+    
+    .ans-box {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 14px;
+      background: #F8FAFC;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .wrong-ans { color: var(--red); font-size: 13px; font-weight: 600; }
+    .correct-ans { color: var(--green); font-size: 13px; font-weight: 600; }
+
+    .markdown-block {
+      background: #FFFFFF;
+      border-left: 3px solid var(--blue);
+      padding: 10px 14px;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 10px;
+      font-size: 13.5px;
+      line-height: 1.6;
+    }
+    .markdown-block.takeaway {
+      border-left-color: var(--amber);
+      background: #FFFBEB;
+    }
+    .block-tag { font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; display: block; }
+    .block-tag.t-reason { color: var(--blue); }
+    .block-tag.t-takeaway { color: var(--amber); }
+
+    .markdown-block a {
+      color: var(--blue);
+      text-decoration: underline;
+      word-break: break-all;
+    }
+    .markdown-block code {
+      background: var(--code-bg);
+      color: #9333EA;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .screenshot-thumb {
+      margin-top: 10px;
+      border-radius: 8px;
+      max-height: 180px;
+      max-width: 100%;
+      cursor: pointer;
+      border: 1px solid var(--border);
+    }
+
+    .card-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .act-btn {
+      background: transparent; border: 1px solid var(--border); border-radius: 6px;
+      padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; gap: 5px; color: var(--subtext);
+    }
+    .act-btn:hover { background: #F8FAFC; color: var(--text); }
+    .act-btn.resolve-btn:hover { color: var(--green); border-color: rgba(22,163,74,0.3); }
+    .act-btn.delete-btn:hover { color: var(--red); border-color: rgba(220,38,38,0.3); }
+
+    /* Security Shield PIN Modal */
+    .shield-modal-bg {
+      position: fixed; inset: 0; background: rgba(15,23,42,0.85); backdrop-filter: blur(8px);
+      z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .shield-card {
+      background: #FFFFFF; border-radius: 20px; max-width: 440px; width: 100%;
+      padding: 32px 28px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+    }
+    .shield-icon {
+      width: 56px; height: 56px; background: #DCFCE7; color: var(--green);
+      border-radius: 14px; display: inline-flex; align-items: center; justify-content: center;
+      font-size: 28px; margin-bottom: 16px;
+    }
+    .shield-title { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+    .shield-desc { font-size: 13.5px; color: var(--subtext); margin-bottom: 24px; line-height: 1.45; }
+    .pin-grid {
+      display: flex; justify-content: center; gap: 10px; margin-bottom: 24px;
+    }
+    .pin-box {
+      width: 48px; height: 56px; border: 2px solid var(--border); border-radius: 10px;
+      font-size: 24px; font-weight: 800; text-align: center; font-family: monospace;
+      outline: none; transition: border-color 0.15s; background: #F8FAFC;
+    }
+    .pin-box:focus { border-color: var(--blue); background: #FFFFFF; box-shadow: 0 0 0 3px rgba(26,115,232,0.15); }
+    .shield-submit {
+      width: 100%; height: 46px; font-size: 15px; font-weight: 700;
+    }
+    .pin-error { color: var(--red); font-size: 12.5px; font-weight: 600; margin-top: 12px; display: none; }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; background: #0F172A; color: #fff;
+      padding: 12px 22px; border-radius: 10px; font-size: 13.5px; font-weight: 600;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.2); display: none; z-index: 1100;
+    }
+
+    @media (max-width: 900px) {
+      .log-layout { grid-template-columns: 1fr; }
+      .stat-cards { grid-template-columns: 1fr 1fr; }
+      .ans-box { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="title-box">
-        <div class="logo-badge">✓</div>
+
+  <!-- Top Navigation Bar -->
+  <header class="app-nav">
+    <div class="nav-inner">
+      <div class="brand-group">
+        <div class="brand-icon">✓</div>
         <div>
-          <h1>NYRO Tasks • Desktop Test Logger</h1>
-          <p class="subtitle">Quickly log test series mistakes directly from your laptop to phone</p>
-        </div>
-      </div>
-      <div class="status-badge">
-        <span class="dot"></span> Connected
-      </div>
-    </div>
-
-    <!-- Paste Dropzone -->
-    <div class="paste-zone" id="pasteZone">
-      <p class="main-text">📋 Press Ctrl+V to paste screenshot from clipboard</p>
-      <p class="sub-text">Or click to select an image from your computer</p>
-      <input type="file" id="fileInput" accept="image/*" style="display: none;">
-      <div class="preview-box" id="previewBox">
-        <img id="previewImg" src="" alt="Screenshot">
-        <button type="button" class="remove-btn" id="removeImgBtn">&times;</button>
-      </div>
-    </div>
-
-    <form id="mistakeForm">
-      <div class="form-grid">
-        <div>
-          <label>Subject</label>
-          <input type="text" id="subjectInput" placeholder="e.g. Engineering Mathematics" list="subjectsList" required>
-          <datalist id="subjectsList"></datalist>
-        </div>
-        <div>
-          <label>Severity</label>
-          <select id="severitySelect">
-            <option value="HIGH">High (Concept Trap / Fatal Blunder)</option>
-            <option value="MEDIUM" selected>Medium (Calculation Slip)</option>
-            <option value="LOW">Low (Silly / Reading Oversight)</option>
-          </select>
-        </div>
-
-        <div class="full-width">
-          <label>Topic / Question Details</label>
-          <input type="text" id="topicInput" placeholder="e.g. Q18: Eigenvalues of Skew-Symmetric Matrix" required>
-        </div>
-
-        <div>
-          <label>Quiz / Test Title (Optional)</label>
-          <input type="text" id="quizInput" placeholder="e.g. MadeEasy Mock 2">
-        </div>
-        <div>
-          <label>Correct Answer</label>
-          <input type="text" id="correctInput" placeholder="e.g. Purely imaginary or zero">
-        </div>
-
-        <div class="full-width">
-          <label>Mistake Reason / Where did I get stuck?</label>
-          <textarea id="reasonInput" placeholder="I assumed the eigenvalues were real because I confused symmetric with skew-symmetric..."></textarea>
-        </div>
-
-        <div class="full-width">
-          <label>Key Takeaway / Concept to Remember</label>
-          <textarea id="takeawayInput" placeholder="Skew-symmetric matrices have A^T = -A, so lambda = -conj(lambda). Hence eigenvalues are purely imaginary or 0!" required></textarea>
+          <span class="brand-title">NYRO Tasks Copilot</span>
+          <span class="brand-version">v$version</span>
         </div>
       </div>
 
-      <div class="btn-row">
-        <button type="submit" class="submit-btn" id="submitBtn">
-          <span>Log Mistake to Phone</span> ➔
+      <nav class="nav-tabs">
+        <button class="tab-btn active" id="tabBtnLog" onclick="switchTab('log')">
+          <span>📝 Log Mistake</span>
+        </button>
+        <button class="tab-btn" id="tabBtnReview" onclick="switchTab('review')">
+          <span>📚 Mistake Archive</span>
+          <span class="tab-badge" id="navCount">0</span>
+        </button>
+      </nav>
+
+      <div class="nav-actions">
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          <span>Wi-Fi Shield Active</span>
+        </div>
+        <button class="shield-btn" onclick="logoutSession()" title="Lock dashboard & disconnect">
+          <span>🔒 Lock</span>
         </button>
       </div>
-    </form>
-
-    <div class="recent-header">
-      <span>Mistakes Logged This Session</span>
-      <span id="sessionCount" style="font-size: 12px; color: var(--subtext);">0 items</span>
     </div>
-    <div class="recent-list" id="recentList">
-      <p style="font-size: 13px; color: var(--subtext); padding: 12px 0;">No mistakes logged in this session yet.</p>
+  </header>
+
+  <!-- Main Content Wrap -->
+  <main class="main-wrap">
+
+    <!-- TAB 1: LOG MISTAKE VIEW -->
+    <section id="paneLog" class="tab-pane active">
+      <div class="log-layout">
+        
+        <!-- Left: Paste / Screenshot Column -->
+        <div class="side-card">
+          <h2 class="card-title">Question Screenshot</h2>
+          <p class="card-subtitle">Paste image from test series or lecture notes</p>
+
+          <div class="paste-zone" id="pasteZone">
+            <p class="main-text">📋 Click or Press Ctrl+V</p>
+            <p class="sub-text">Paste clipboard image directly</p>
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            <div class="preview-box" id="previewBox">
+              <img id="previewImg" src="" alt="Screenshot">
+              <button type="button" class="remove-img" id="removeImgBtn" title="Remove image">&times;</button>
+            </div>
+          </div>
+
+          <div style="font-size: 12px; color: var(--subtext); line-height: 1.5; padding: 10px; background: #F8FAFC; border-radius: 8px;">
+            💡 <strong>Fast Logging Tip:</strong> When taking quizzes on MadeEasy, GateAcademy, or GateOverflow on laptop, use <code>Win + Shift + S</code> to snip the question, then switch here and hit <code>Ctrl + V</code>!
+          </div>
+        </div>
+
+        <!-- Right: Mistake Form -->
+        <div class="form-card">
+          <h2 class="card-title">Log Blunder Details</h2>
+          <p class="card-subtitle">Recorded mistakes sync immediately to your phone and cloud notes</p>
+
+          <form id="mistakeForm">
+            <div class="form-grid">
+              <div>
+                <label>Subject</label>
+                <input type="text" id="subjectInput" placeholder="e.g. Engineering Mathematics" list="subjectsList" required>
+                <datalist id="subjectsList"></datalist>
+              </div>
+              <div>
+                <label>Severity / Trap Level</label>
+                <select id="severitySelect">
+                  <option value="HIGH">High (Concept Trap / Fatal Blunder)</option>
+                  <option value="MEDIUM" selected>Medium (Calculation Slip)</option>
+                  <option value="LOW">Low (Silly / Reading Oversight)</option>
+                </select>
+              </div>
+
+              <div class="col-full">
+                <label>Topic / Question Identification</label>
+                <input type="text" id="topicInput" placeholder="e.g. Q18: Eigenvalues of Skew-Symmetric Matrix" required>
+              </div>
+
+              <div>
+                <label>Quiz / Test Series Title (Optional)</label>
+                <input type="text" id="quizInput" placeholder="e.g. MadeEasy Topic Test 02">
+              </div>
+              <div>
+                <label>Correct Answer</label>
+                <input type="text" id="correctInput" placeholder="e.g. Purely imaginary or zero">
+              </div>
+
+              <div class="col-full">
+                <label>My Wrong Answer / Initial Attempt</label>
+                <input type="text" id="wrongInput" placeholder="e.g. All eigenvalues are real">
+              </div>
+
+              <div class="col-full">
+                <label>Mistake Reason (Where did I slip?)</label>
+                <textarea id="reasonInput" placeholder="Confused symmetric (A^T = A, real eigenvalues) with skew-symmetric (A^T = -A). Remember URLs or links like https://gateoverflow.in/1234 are clickable!"></textarea>
+              </div>
+
+              <div class="col-full">
+                <label>Key Takeaway / Concept to Remember</label>
+                <textarea id="takeawayInput" placeholder="For skew-symmetric: lambda = -lambda*. Hence Re(lambda) = 0! Eigenvalues are 0 or purely imaginary." required></textarea>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 12px;">
+              <button type="submit" class="btn-primary" id="submitBtn">
+                <span>Save Mistake to Phone</span> ➔
+              </button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- TAB 2: REVIEW & STUDY ARCHIVE VIEW -->
+    <section id="paneReview" class="tab-pane">
+      
+      <!-- Stats Row -->
+      <div class="stat-cards">
+        <div class="stat-card">
+          <div class="stat-label">Total Recorded</div>
+          <div class="stat-val" id="statTotal">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">High Priority Traps</div>
+          <div class="stat-val" style="color: var(--red);" id="statHigh">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pending Review</div>
+          <div class="stat-val" style="color: var(--amber);" id="statPending">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Resolved / Mastered</div>
+          <div class="stat-val" style="color: var(--green);" id="statResolved">0</div>
+        </div>
+      </div>
+
+      <!-- Filter & Search Toolbar -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="searchInput" placeholder="Search by question, formula, concept, or takeaway..." oninput="onSearchChanged()">
+        </div>
+
+        <div class="filter-group">
+          <select id="filterSubject" class="filter-select" onchange="applyFilters()">
+            <option value="">All Subjects</option>
+          </select>
+
+          <select id="filterSeverity" class="filter-select" onchange="applyFilters()">
+            <option value="">All Severities</option>
+            <option value="HIGH">High Traps</option>
+            <option value="MEDIUM">Medium Slips</option>
+            <option value="LOW">Low / Silly</option>
+          </select>
+
+          <select id="filterStatus" class="filter-select" onchange="applyFilters()">
+            <option value="">All Statuses</option>
+            <option value="PENDING" selected>Unresolved Only</option>
+            <option value="RESOLVED">Resolved Only</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Live Mistakes Feed -->
+      <div class="mistake-feed" id="mistakeFeed">
+        <div style="text-align: center; padding: 48px; color: var(--subtext);">
+          Loading mistakes from phone...
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Wi-Fi Shield 6-Digit Authenticator Modal -->
+  <div class="shield-modal-bg" id="shieldModal" style="display: none;">
+    <div class="shield-card">
+      <div class="shield-icon">🛡️</div>
+      <h2 class="shield-title">Public Wi-Fi Shield</h2>
+      <p class="shield-desc">
+        Enter the <strong>6-digit Pairing Code</strong> shown in NYRO Tasks app on your mobile phone to unlock this laptop dashboard.
+      </p>
+
+      <div class="pin-grid">
+        <input type="password" maxlength="1" class="pin-box" id="pin1" inputmode="numeric" autofocus>
+        <input type="password" maxlength="1" class="pin-box" id="pin2" inputmode="numeric">
+        <input type="password" maxlength="1" class="pin-box" id="pin3" inputmode="numeric">
+        <input type="password" maxlength="1" class="pin-box" id="pin4" inputmode="numeric">
+        <input type="password" maxlength="1" class="pin-box" id="pin5" inputmode="numeric">
+        <input type="password" maxlength="1" class="pin-box" id="pin6" inputmode="numeric">
+      </div>
+
+      <button class="btn-primary shield-submit" id="shieldSubmitBtn" onclick="submitPin()">
+        Unlock Dashboard
+      </button>
+
+      <div class="pin-error" id="pinError">Invalid code. Please check your phone.</div>
     </div>
   </div>
 
+  <!-- Toast Notification -->
   <div class="toast" id="toast"></div>
 
   <script>
+    // State
+    let authToken = localStorage.getItem('nyro_desktop_token');
+    let allMistakes = [];
+    let distinctSubjects = [];
     let pastedImageBase64 = null;
-    let loggedItems = [];
 
-    // Auto-fetch existing subjects from phone
-    fetch('/api/subjects').then(r => r.json()).then(data => {
-      const list = document.getElementById('subjectsList');
-      if (data && data.subjects) {
-        data.subjects.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = s;
-          list.appendChild(opt);
-        });
+    // Helper: Toast
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3200);
+    }
+
+    // Helper: Markdown parser with clickable URLs
+    function renderMarkdown(rawText) {
+      if (!rawText) return '';
+      let escaped = rawText
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      // Auto-link URLs
+      escaped = escaped.replace(/(https?:\\/\\/[^\\s<]+)/g, '<a href="\$1" target="_blank" rel="noopener noreferrer">\$1 ↗</a>');
+
+      // Bold & Italic
+      escaped = escaped.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>\$1</strong>');
+      escaped = escaped.replace(/\\*(.*?)\\*/g, '<em>\$1</em>');
+
+      // Inline Code
+      escaped = escaped.replace(/`([^`]+)`/g, '<code>\$1</code>');
+
+      // Convert linebreaks
+      escaped = escaped.replace(/\\n/g, '<br>');
+
+      return escaped;
+    }
+
+    // Tab Switcher
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+      if (tabId === 'log') {
+        document.getElementById('paneLog').classList.add('active');
+        document.getElementById('tabBtnLog').classList.add('active');
+      } else {
+        document.getElementById('paneReview').classList.add('active');
+        document.getElementById('tabBtnReview').classList.add('active');
+        loadMistakes();
       }
-    }).catch(() => {});
+    }
 
-    // Ctrl+V paste listener anywhere on window
-    window.addEventListener('paste', e => {
+    // Auth & Wi-Fi Shield
+    function checkAuth() {
+      if (!authToken) {
+        showShieldModal();
+        return;
+      }
+      fetch('/api/auth/status', {
+        headers: { 'Authorization': 'Bearer ' + authToken }
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (!d.authenticated) {
+          showShieldModal();
+        } else {
+          hideShieldModal();
+          initDashboard();
+        }
+      })
+      .catch(() => showShieldModal());
+    }
+
+    function showShieldModal() {
+      document.getElementById('shieldModal').style.display = 'flex';
+      setupPinInputs();
+    }
+
+    function hideShieldModal() {
+      document.getElementById('shieldModal').style.display = 'none';
+    }
+
+    function logoutSession() {
+      authToken = null;
+      localStorage.removeItem('nyro_desktop_token');
+      showShieldModal();
+      showToast('Dashboard locked. Re-enter phone PIN to unlock.');
+    }
+
+    function setupPinInputs() {
+      const inputs = [1,2,3,4,5,6].map(i => document.getElementById('pin' + i));
+      inputs.forEach((inp, idx) => {
+        inp.value = '';
+        inp.oninput = (e) => {
+          if (inp.value.length === 1 && idx < 5) {
+            inputs[idx + 1].focus();
+          }
+          if (idx === 5 && inp.value.length === 1) {
+            submitPin();
+          }
+        };
+        inp.onkeydown = (e) => {
+          if (e.key === 'Backspace' && !inp.value && idx > 0) {
+            inputs[idx - 1].focus();
+          }
+        };
+        inp.onpaste = (e) => {
+          e.preventDefault();
+          const paste = (e.clipboardData || window.clipboardData).getData('text').replace(/\\D/g, '');
+          if (paste.length >= 6) {
+            for (let i = 0; i < 6; i++) {
+              inputs[i].value = paste[i];
+            }
+            submitPin();
+          }
+        };
+      });
+      setTimeout(() => inputs[0].focus(), 150);
+    }
+
+    function submitPin() {
+      const pin = [1,2,3,4,5,6].map(i => document.getElementById('pin' + i).value).join('');
+      if (pin.length < 6) return;
+
+      const errEl = document.getElementById('pinError');
+      errEl.style.display = 'none';
+
+      fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pin })
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.success && res.token) {
+          authToken = res.token;
+          localStorage.setItem('nyro_desktop_token', authToken);
+          hideShieldModal();
+          showToast('Shield Authenticated! Welcome to NYRO Desktop Studio.');
+          initDashboard();
+        } else {
+          errEl.innerText = res.error || 'Invalid 6-digit code. Check your phone!';
+          errEl.style.display = 'block';
+        }
+      })
+      .catch(err => {
+        errEl.innerText = 'Authentication error. Please retry.';
+        errEl.style.display = 'block';
+      });
+    }
+
+    // Dashboard Initialization
+    function initDashboard() {
+      loadSubjects();
+      loadMistakes();
+    }
+
+    function loadSubjects() {
+      fetch('/api/subjects', {
+        headers: { 'Authorization': 'Bearer ' + authToken }
+      })
+      .then(r => r.json())
+      .then(data => {
+        distinctSubjects = data.subjects || [];
+        const dl = document.getElementById('subjectsList');
+        const sel = document.getElementById('filterSubject');
+        dl.innerHTML = distinctSubjects.map(s => `<option value="\${s}">`).join('');
+        sel.innerHTML = '<option value="">All Subjects</option>' + distinctSubjects.map(s => `<option value="\${s}">\${s}</option>`).join('');
+      })
+      .catch(() => {});
+    }
+
+    function loadMistakes() {
+      fetch('/api/mistakes', {
+        headers: { 'Authorization': 'Bearer ' + authToken }
+      })
+      .then(r => r.json())
+      .then(data => {
+        allMistakes = data.mistakes || [];
+        updateStats();
+        applyFilters();
+      })
+      .catch(e => {
+        document.getElementById('mistakeFeed').innerHTML = '<div style="text-align:center; padding: 30px; color: var(--red);">Error loading mistake records from phone.</div>';
+      });
+    }
+
+    function updateStats() {
+      const total = allMistakes.length;
+      const high = allMistakes.filter(m => (m.severity || '').toUpperCase() === 'HIGH').length;
+      const resolved = allMistakes.filter(m => (m.status || '').toUpperCase() === 'RESOLVED').length;
+      const pending = total - resolved;
+
+      document.getElementById('statTotal').innerText = total;
+      document.getElementById('statHigh').innerText = high;
+      document.getElementById('statPending').innerText = pending;
+      document.getElementById('statResolved').innerText = resolved;
+      document.getElementById('navCount').innerText = pending;
+    }
+
+    function onSearchChanged() {
+      applyFilters();
+    }
+
+    function applyFilters() {
+      const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+      const s = document.getElementById('filterSubject').value;
+      const sev = document.getElementById('filterSeverity').value;
+      const status = document.getElementById('filterStatus').value;
+
+      const filtered = allMistakes.filter(m => {
+        if (s && m.subject !== s) return false;
+        if (sev && (m.severity || '').toUpperCase() !== sev) return false;
+        if (status && (m.status || 'PENDING').toUpperCase() !== status) return false;
+        if (q) {
+          const matchQ = (m.topic || '').toLowerCase().includes(q) ||
+                         (m.question_text || '').toLowerCase().includes(q) ||
+                         (m.mistake_reason || '').toLowerCase().includes(q) ||
+                         (m.key_takeaway || '').toLowerCase().includes(q) ||
+                         (m.subject || '').toLowerCase().includes(q) ||
+                         (m.quiz_title || '').toLowerCase().includes(q);
+          if (!matchQ) return false;
+        }
+        return true;
+      });
+
+      renderMistakeFeed(filtered);
+    }
+
+    function renderMistakeFeed(items) {
+      const feed = document.getElementById('mistakeFeed');
+      if (items.length === 0) {
+        feed.innerHTML = '<div style="text-align: center; padding: 48px; color: var(--subtext); background:#fff; border-radius:12px; border:1px solid var(--border);">No matching mistakes found.</div>';
+        return;
+      }
+
+      feed.innerHTML = items.map(m => {
+        const isResolved = (m.status || '').toUpperCase() === 'RESOLVED';
+        const sev = (m.severity || 'MEDIUM').toUpperCase();
+        const dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+
+        // Extract image url if stored in takeaway
+        let imgHtml = '';
+        let cleanTakeaway = m.key_takeaway || '';
+        const imgMatch = cleanTakeaway.match(/!\\[Screenshot\\]\\((.*?)\\)/);
+        if (imgMatch) {
+          const src = imgMatch[1];
+          imgHtml = `<img src="\${src}" class="screenshot-thumb" alt="Screenshot" onclick="window.open('\${src}', '_blank')">`;
+          cleanTakeaway = cleanTakeaway.replace(/!\\[Screenshot\\]\\(.*?\\)/g, '').trim();
+        }
+
+        return `
+          <div class="feed-card \${isResolved ? 'resolved' : ''}">
+            <div class="card-head">
+              <div class="badge-wrap">
+                <span class="subj-pill">\${m.subject || 'General'}</span>
+                <span class="sev-pill sev-\${sev}">\${sev}</span>
+                \${m.quiz_title ? `<span class="quiz-pill">🎯 \${m.quiz_title}</span>` : ''}
+              </div>
+              <span class="date-str">\${dateStr}</span>
+            </div>
+
+            <div class="q-title">\${m.topic || m.question_text || 'Test Question'}</div>
+
+            \${(m.wrong_answer || m.correct_answer) ? `
+              <div class="ans-box">
+                \${m.wrong_answer ? `<div class="wrong-ans">❌ Wrong: \${m.wrong_answer}</div>` : '<div></div>'}
+                \${m.correct_answer ? `<div class="correct-ans">✓ Correct: \${m.correct_answer}</div>` : '<div></div>'}
+              </div>
+            ` : ''}
+
+            \${m.mistake_reason ? `
+              <div class="markdown-block">
+                <span class="block-tag t-reason">Trap / Why I Slipped</span>
+                \${renderMarkdown(m.mistake_reason)}
+              </div>
+            ` : ''}
+
+            <div class="markdown-block takeaway">
+              <span class="block-tag t-takeaway">Core Takeaway to Remember</span>
+              \${renderMarkdown(cleanTakeaway)}
+            </div>
+
+            \${imgHtml}
+
+            <div class="card-footer">
+              <button class="act-btn resolve-btn" onclick="toggleResolve(\${m.id}, \${!isResolved})">
+                \${isResolved ? '↩ Re-open' : '✓ Mark Resolved'}
+              </button>
+              <button class="act-btn delete-btn" onclick="deleteMistake(\${m.id})">
+                🗑 Delete
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function toggleResolve(id, resolveState) {
+      fetch(`/api/mistakes/\${id}/resolve`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + authToken
+        },
+        body: JSON.stringify({ resolved: resolveState })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          const item = allMistakes.find(m => m.id === id);
+          if (item) item.status = resolveState ? 'RESOLVED' : 'PENDING';
+          updateStats();
+          applyFilters();
+          showToast(resolveState ? 'Marked mistake as resolved!' : 'Re-opened mistake for review.');
+        }
+      });
+    }
+
+    function deleteMistake(id) {
+      if (!confirm('Are you sure you want to delete this mistake record from your phone?')) return;
+      fetch(`/api/mistakes/\${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + authToken }
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          allMistakes = allMistakes.filter(m => m.id !== id);
+          updateStats();
+          applyFilters();
+          showToast('Mistake record deleted.');
+        }
+      });
+    }
+
+    // Image Paste & File Dropzone
+    const pasteZone = document.getElementById('pasteZone');
+    const fileInput = document.getElementById('fileInput');
+    const previewBox = document.getElementById('previewBox');
+    const previewImg = document.getElementById('previewImg');
+    const removeImgBtn = document.getElementById('removeImgBtn');
+
+    pasteZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) handleImageFile(file);
+    });
+
+    window.addEventListener('paste', (e) => {
       const items = (e.clipboardData || e.originalEvent.clipboardData).items;
-      for (const item of items) {
+      for (let item of items) {
         if (item.type.indexOf('image') !== -1) {
-          const blob = item.getAsFile();
-          handleImageFile(blob);
-          showToast('📸 Screenshot pasted from clipboard!');
+          const file = item.getAsFile();
+          handleImageFile(file);
           break;
         }
       }
     });
 
-    const pasteZone = document.getElementById('pasteZone');
-    const fileInput = document.getElementById('fileInput');
-    pasteZone.addEventListener('click', e => {
-      if (e.target.id !== 'removeImgBtn') fileInput.click();
-    });
-
-    fileInput.addEventListener('change', e => {
-      if (e.target.files && e.target.files[0]) {
-        handleImageFile(e.target.files[0]);
-      }
-    });
-
     function handleImageFile(file) {
       const reader = new FileReader();
-      reader.onload = evt => {
-        pastedImageBase64 = evt.target.result;
-        document.getElementById('previewImg').src = pastedImageBase64;
-        document.getElementById('previewBox').style.display = 'flex';
+      reader.onload = (e) => {
+        pastedImageBase64 = e.target.result;
+        previewImg.src = pastedImageBase64;
+        previewBox.style.display = 'block';
+        pasteZone.classList.add('has-image');
+        showToast('Screenshot attached from clipboard!');
       };
       reader.readAsDataURL(file);
     }
 
-    document.getElementById('removeImgBtn').addEventListener('click', e => {
+    removeImgBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       pastedImageBase64 = null;
-      document.getElementById('previewBox').style.display = 'none';
-      document.getElementById('previewImg').src = '';
+      previewImg.src = '';
+      previewBox.style.display = 'none';
+      pasteZone.classList.remove('has-image');
       fileInput.value = '';
     });
 
-    function showToast(msg) {
-      const t = document.getElementById('toast');
-      t.innerText = msg;
-      t.style.display = 'block';
-      setTimeout(() => { t.style.display = 'none'; }, 3500);
-    }
-
-    // Submit handler
-    document.getElementById('mistakeForm').addEventListener('submit', async e => {
+    // Form Submission
+    document.getElementById('mistakeForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = document.getElementById('submitBtn');
-      btn.disabled = true;
-      btn.innerText = 'Logging to phone...';
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Logging to Phone...';
 
       const payload = {
         subject: document.getElementById('subjectInput').value.trim(),
@@ -525,59 +1381,48 @@ class DesktopLogServerService {
         topic: document.getElementById('topicInput').value.trim(),
         quiz_title: document.getElementById('quizInput').value.trim(),
         correct_answer: document.getElementById('correctInput').value.trim(),
+        wrong_answer: document.getElementById('wrongInput').value.trim(),
         mistake_reason: document.getElementById('reasonInput').value.trim(),
         key_takeaway: document.getElementById('takeawayInput').value.trim(),
-        image_base64: pastedImageBase64
+        image_base64: pastedImageBase64,
       };
 
       try {
         const res = await fetch('/api/mistakes', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + authToken,
+          },
+          body: JSON.stringify(payload),
         });
+
         const data = await res.json();
         if (res.ok && data.success) {
-          showToast('✅ Mistake recorded in Tasks app!');
-          loggedItems.unshift(payload);
-          updateRecentList();
-          // Reset form
+          showToast('✓ Mistake logged successfully to phone!');
+          // Clear inputs
           document.getElementById('topicInput').value = '';
+          document.getElementById('correctInput').value = '';
+          document.getElementById('wrongInput').value = '';
           document.getElementById('reasonInput').value = '';
           document.getElementById('takeawayInput').value = '';
-          document.getElementById('correctInput').value = '';
-          pastedImageBase64 = null;
-          document.getElementById('previewBox').style.display = 'none';
-          document.getElementById('previewImg').src = '';
-          fileInput.value = '';
+          removeImgBtn.click();
+
+          // Refresh mistake feed in background
+          loadMistakes();
         } else {
-          showToast('❌ Error: ' + (data.error || 'Failed to save'));
+          showToast('Error: ' + (data.error || 'Failed to log'));
         }
       } catch (err) {
-        showToast('❌ Connection error: ' + err);
+        showToast('Network error logging blunder to phone');
       } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span>Log Mistake to Phone</span> ➔';
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Save Mistake to Phone ➔';
       }
     });
 
-    function updateRecentList() {
-      const list = document.getElementById('recentList');
-      document.getElementById('sessionCount').innerText = loggedItems.length + ' items';
-      if (loggedItems.length === 0) {
-        list.innerHTML = '<p style="font-size: 13px; color: var(--subtext); padding: 12px 0;">No mistakes logged in this session yet.</p>';
-        return;
-      }
-      list.innerHTML = loggedItems.map(item => `
-        <div class="blunder-card">
-          <div>
-            <h4>\${item.subject} • \${item.topic}</h4>
-            <p>\${item.key_takeaway.substring(0, 90)}\${item.key_takeaway.length > 90 ? '...' : ''}</p>
-          </div>
-          <span class="sev-pill sev-\${item.severity}">\${item.severity}</span>
-        </div>
-      `).join('');
-    }
+    // Check Auth on page load
+    checkAuth();
   </script>
 </body>
 </html>

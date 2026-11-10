@@ -50,8 +50,8 @@ jobs:
             TITLE="NYRO Tasks ${{ github.ref_name }}"
           else
             VERSION=$(grep '^version: ' pubspec.yaml | sed 's/version: //' | tr -d '\r' | cut -d'+' -f1)
-            TAG="v${VERSION}.${{ github.run_number }}"
-            TITLE="NYRO Tasks $TAG (Build ${{ github.run_number }})"
+            TAG="v${VERSION}"
+            TITLE="NYRO Tasks v${VERSION} (Build ${{ github.run_number }})"
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "title=$TITLE" >> $GITHUB_OUTPUT

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:tasks/data/database_service.dart';
 import 'package:tasks/pages/settings/schema_guide_page.dart';
 import 'package:tasks/services/app_update_service.dart';
@@ -368,17 +369,72 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 16),
                   Container(
                     width: double.infinity,
-                    constraints: const BoxConstraints(maxHeight: 140),
-                    padding: const EdgeInsets.all(12),
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF8FAFD),
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: googleHairline),
                     ),
                     child: SingleChildScrollView(
-                      child: Text(
-                        release.body.trim().isEmpty ? 'Performance improvements and bug fixes.' : release.body,
-                        style: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.35),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          MarkdownBody(
+                            data: release.body.trim().isEmpty
+                                ? '### Highlights\n* Bug fixes and performance improvements\n* Hugging Face Bucket cloud sync\n* Full-width desktop mistake reviewer'
+                                : release.body,
+                            selectable: true,
+                            onTapLink: (text, href, title) {
+                              if (href != null && href.isNotEmpty) {
+                                UrlHelper.launchURL(href);
+                              }
+                            },
+                            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                              p: const TextStyle(fontSize: 12.5, color: googleTextPrimary, height: 1.4),
+                              h1: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                              h2: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                              h3: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: googleTextPrimary),
+                              listBullet: const TextStyle(fontSize: 13, color: googleBlue),
+                              a: const TextStyle(fontSize: 12.5, color: googleBlue, decoration: TextDecoration.underline),
+                              code: TextStyle(
+                                fontSize: 11.5,
+                                color: Colors.purple.shade700,
+                                backgroundColor: const Color(0xFFF1F3F4),
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Divider(height: 1, thickness: 1, color: googleHairline),
+                          const SizedBox(height: 8),
+                          InkWell(
+                            onTap: () {
+                              final tag = release.tagName;
+                              UrlHelper.launchURL('https://github.com/${AppUpdateService.defaultGithubRepo}/releases/tag/$tag');
+                            },
+                            borderRadius: BorderRadius.circular(6),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.open_in_new_rounded, size: 14, color: googleBlue),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'View Full Release Notes on GitHub',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: googleBlue,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -837,36 +893,117 @@ class _SettingsPageState extends State<SettingsPage> {
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: googleGreen.withOpacity(0.3)),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.link_rounded, color: googleGreen, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SelectableText(
-                        _serverUrl!,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                      ),
+                    Row(
+                      children: [
+                        const Icon(Icons.link_rounded, color: googleGreen, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SelectableText(
+                            _serverUrl!,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
+                          tooltip: 'Copy URL',
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: _serverUrl!));
+                            TopBanner.show(
+                              context,
+                              title: 'URL Copied',
+                              message: 'Copied ${_serverUrl!} to clipboard.',
+                              icon: Icons.check_circle_outline_rounded,
+                              color: googleGreen,
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
-                      tooltip: 'Copy URL',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: _serverUrl!));
-                        TopBanner.show(
-                          context,
-                          title: 'URL Copied',
-                          message: 'Copied ${_serverUrl!} to clipboard.',
-                          icon: Icons.check_circle_outline_rounded,
-                          color: googleGreen,
-                        );
-                      },
+                    const SizedBox(height: 8),
+                    const Divider(height: 1, thickness: 1, color: Color(0xFFDCFCE7)),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.shield_rounded, size: 14, color: googleGreen),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Public Wi-Fi Shield PIN',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: googleGreen.withOpacity(0.4)),
+                              ),
+                              child: Text(
+                                DesktopLogServerService.instance.pairingPin,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 4,
+                                  color: googleGreen,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
+                              tooltip: 'Copy PIN',
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: DesktopLogServerService.instance.pairingPin));
+                                TopBanner.show(
+                                  context,
+                                  title: 'PIN Copied',
+                                  message: '6-digit PIN copied to clipboard.',
+                                  icon: Icons.shield_rounded,
+                                  color: googleGreen,
+                                );
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.refresh_rounded, size: 20, color: googleBlue),
+                              tooltip: 'Regenerate PIN',
+                              onPressed: () {
+                                setState(() {
+                                  DesktopLogServerService.instance.generateNewPin();
+                                });
+                                TopBanner.show(
+                                  context,
+                                  title: 'New PIN Generated',
+                                  message: 'Existing desktop connections will need this new PIN.',
+                                  icon: Icons.vpn_key_rounded,
+                                  color: googleBlue,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 8),
               const Text(
-                'Open this URL in Chrome/Edge on your laptop to paste test screenshots and log mistakes.',
+                'Open this URL in Chrome/Edge on your laptop and enter the 6-digit PIN to securely log & review mistakes on public Wi-Fi.',
                 style: TextStyle(fontSize: 11, color: googleTextSecondary),
               ),
             ],

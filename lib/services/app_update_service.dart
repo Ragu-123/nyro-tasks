@@ -42,15 +42,22 @@ class AppReleaseInfo {
       final curParts = curCore.split('.').map((p) => int.tryParse(p) ?? 0).toList();
       final remoteParts = remCore.split('.').map((p) => int.tryParse(p) ?? 0).toList();
 
-      final maxLen = curParts.length > remoteParts.length ? curParts.length : remoteParts.length;
-      for (int i = 0; i < maxLen; i++) {
-        final cur = i < curParts.length ? curParts[i] : 0;
-        final rem = i < remoteParts.length ? remoteParts[i] : 0;
-        if (rem > cur) return true;
-        if (rem < cur) return false;
-      }
+      final cMajor = curParts.isNotEmpty ? curParts[0] : 0;
+      final cMinor = curParts.length > 1 ? curParts[1] : 0;
+      final cPatch = curParts.length > 2 ? curParts[2] : 0;
 
-      // If semantic versions match, compare build numbers if present (e.g. +5 vs +4)
+      final rMajor = remoteParts.isNotEmpty ? remoteParts[0] : 0;
+      final rMinor = remoteParts.length > 1 ? remoteParts[1] : 0;
+      final rPatch = remoteParts.length > 2 ? remoteParts[2] : 0;
+
+      if (rMajor > cMajor) return true;
+      if (rMajor < cMajor) return false;
+      if (rMinor > cMinor) return true;
+      if (rMinor < cMinor) return false;
+      if (rPatch > cPatch) return true;
+      if (rPatch < cPatch) return false;
+
+      // If semantic versions match, compare build numbers if present (e.g. +6 vs +5)
       final curBuild = curClean.contains('+') ? int.tryParse(curClean.split('+').last) ?? 0 : 0;
       final remBuild = remClean.contains('+') ? int.tryParse(remClean.split('+').last) ?? 0 : 0;
       if (remBuild > curBuild) return true;
@@ -121,7 +128,7 @@ class AppUpdateProgress {
 }
 
 class AppUpdateService {
-  static const String currentVersion = '1.0.4';
+  static const String currentVersion = '1.0.5';
   static const String defaultGithubRepo = 'Ragu-123/nyro-tasks';
   static const MethodChannel _nativeChannel = MethodChannel('io.github.thelazyindian.tasks/native');
 

@@ -27,8 +27,8 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
   // First-time setup controllers
   final _tokenController = TextEditingController();
-  final _usernameController = TextEditingController();
-  final _repoController = TextEditingController(text: 'nyro-android-data');
+  final _usernameController = TextEditingController(text: 'King758');
+  final _repoController = TextEditingController(text: 'King758/gate2027-nyro');
   bool _createNewRepo = false;
   bool _isSettingUp = false;
 
@@ -168,6 +168,54 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         title: 'Upload Failed',
         message: e.toString().replaceAll('Exception: ', ''),
         icon: Icons.cloud_off_outlined,
+        color: googleRed,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+          _syncStatusText = '';
+        });
+      }
+    }
+  }
+
+  Future<void> _smartSyncFromBucket() async {
+    if (_token == null || _token!.isEmpty) return;
+
+    setState(() {
+      _isSyncing = true;
+      _syncStatusText = 'Smart merging master nyro.db from Hugging Face Bucket...';
+    });
+
+    try {
+      await CloudSyncService.instance.downloadCloudNyroDb(
+        token: _token!,
+        smartMerge: true,
+      );
+
+      await DatabaseService.instance.addInAppNotification(
+        title: 'Bucket Smart Sync',
+        message: 'Merged master nyro.db from ${_repo ?? "King758/gate2027-nyro"}',
+        type: 'CLOUD_SYNC',
+      );
+
+      TopBanner.show(
+        context,
+        title: 'Smart Sync Completed',
+        message: 'Master cloud database merged without losing your local progress.',
+        icon: Icons.sync_rounded,
+        color: googleGreen,
+      );
+
+      await _loadConfig();
+      widget.onDataChanged?.call();
+    } catch (e) {
+      TopBanner.show(
+        context,
+        title: 'Sync Failed',
+        message: e.toString().replaceAll('Exception: ', ''),
+        icon: Icons.error_outline_rounded,
         color: googleRed,
       );
     } finally {
@@ -331,12 +379,12 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Hugging Face Cloud Setup',
+                          'Hugging Face Bucket Setup',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Connect once to backup and restore study databases across devices.',
+                          'Connect your private storage bucket (King758/gate2027-nyro) to sync study data across devices.',
                           style: TextStyle(fontSize: 12, color: googleTextSecondary),
                         ),
                       ],
@@ -398,43 +446,22 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               const SizedBox(height: 16),
               // Repository Selection
               const Text(
-                'DATASET REPOSITORY',
+                'HUGGING FACE BUCKET',
                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.5),
               ),
               const SizedBox(height: 8),
 
-              Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('Use Existing Repo', style: TextStyle(fontSize: 12)),
-                    selected: !_createNewRepo,
-                    onSelected: (val) => setState(() => _createNewRepo = false),
-                    selectedColor: const Color(0xFFE8F0FE),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Create New in App', style: TextStyle(fontSize: 12)),
-                    selected: _createNewRepo,
-                    onSelected: (val) => setState(() => _createNewRepo = true),
-                    selectedColor: const Color(0xFFE8F0FE),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
               TextField(
                 controller: _repoController,
                 decoration: InputDecoration(
-                  hintText: 'nyro-android-data',
+                  hintText: 'King758/gate2027-nyro',
                   hintStyle: const TextStyle(fontSize: 13, color: googleBorder),
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
                   enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  helperText: _createNewRepo
-                      ? 'A private dataset will be created under your account'
-                      : 'Enter repo name (e.g. nyro-android-data)',
+                  helperText: 'Your private bucket storing nyro.db (e.g. King758/gate2027-nyro)',
                   helperStyle: const TextStyle(fontSize: 11),
                 ),
               ),
@@ -581,31 +608,42 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
           ),
         ],
 
-        // THE TWO PROMINENT ACTION OPTIONS
+        // BUCKET SYNC ACTIONS
         const Text(
-          'CLOUD DATABASE ACTIONS',
+          'HUGGING FACE BUCKET ACTIONS',
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
         ),
         const SizedBox(height: 12),
 
-        // Option 1: Upload DB to Hub
+        // Action 1: Smart Sync & Merge from Bucket
+        _buildActionCard(
+          icon: Icons.sync_rounded,
+          iconColor: googleBlue,
+          title: 'Smart Sync from Bucket',
+          description: 'Pulls the master nyro.db from your private Hugging Face Bucket (King758/gate2027-nyro) and smart merges study progress without losing your local changes.',
+          buttonLabel: 'Smart Sync from Bucket',
+          onTap: _isSyncing ? null : _smartSyncFromBucket,
+        ),
+        const SizedBox(height: 16),
+
+        // Action 2: Upload DB to Bucket
         _buildActionCard(
           icon: Icons.cloud_upload_outlined,
-          iconColor: googleBlue,
-          title: 'Upload DB to Hub',
-          description: 'Upload your current study ticks, completed checkboxes, mistake notebook, and custom reminders to your Hugging Face dataset repo.',
-          buttonLabel: 'Upload DB to Hub',
+          iconColor: googleAmber,
+          title: 'Upload DB to Bucket',
+          description: 'Pushes your local database (ticks, mistakes, reminders) to Hugging Face Bucket King758/gate2027-nyro to keep all devices in sync.',
+          buttonLabel: 'Upload DB to Bucket',
           onTap: _isSyncing ? null : _uploadDatabase,
         ),
         const SizedBox(height: 16),
 
-        // Option 2: Restore DB from Hub
+        // Action 3: Restore DB from Bucket
         _buildActionCard(
           icon: Icons.cloud_download_outlined,
           iconColor: googleGreen,
-          title: 'Restore DB from Hub',
-          description: 'Download your saved android_nyro.db from Hugging Face and restore all your study progress onto this phone.',
-          buttonLabel: 'Restore DB from Hub',
+          title: 'Full Restore from Bucket',
+          description: 'Downloads the master nyro.db from Hugging Face Bucket and completely restores your study database on this phone.',
+          buttonLabel: 'Restore DB from Bucket',
           onTap: _isSyncing ? null : _restoreDatabase,
         ),
       ],

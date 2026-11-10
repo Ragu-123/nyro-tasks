@@ -1097,17 +1097,17 @@ class _HomePageState extends State<HomePage> {
                     child: const Icon(Icons.check_rounded, color: googleBlue, size: 24),
                   ),
                   const SizedBox(width: 14),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'NYRO Tasks',
                           style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: googleTextPrimary),
                         ),
                         Text(
-                          'GATE Study Copilot • v1.0.0',
-                          style: TextStyle(fontSize: 11, color: googleTextSecondary),
+                          'GATE Study Copilot • v${AppUpdateService.currentVersion}',
+                          style: const TextStyle(fontSize: 11, color: googleTextSecondary),
                         ),
                       ],
                     ),

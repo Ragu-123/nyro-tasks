@@ -11,39 +11,8 @@ class CloudSyncService {
   CloudSyncService._internal();
 
   static const String defaultBucketRepo = 'King758/gate2027-nyro';
-  static const String defaultDatasetRepo = 'nyro-android-data';
-
-  Future<String> getEffectiveDatasetRepo({String? token}) async {
-    final customRepo = await DatabaseService.instance.getHfRepo();
-    String repo = (customRepo != null && customRepo.trim().isNotEmpty)
-        ? customRepo.trim()
-        : defaultDatasetRepo;
-
-    // If repo already includes owner/repo, return directly
-    if (repo.contains('/')) {
-      return repo;
-    }
-
-    // Resolve owner username
-    String? username = await DatabaseService.instance.getHfUsername();
-    if (username == null || username.trim().isEmpty) {
-      final effectiveToken = token ?? await DatabaseService.instance.getHfToken();
-      if (effectiveToken != null && effectiveToken.trim().isNotEmpty) {
-        try {
-          username = await whoAmI(effectiveToken);
-          if (username != null && username.isNotEmpty) {
-            await DatabaseService.instance.setHfUsername(username);
-          }
-        } catch (_) {}
-      }
-    }
-
-    final effectiveUser = (username != null && username.trim().isNotEmpty)
-        ? username.trim()
-        : 'King758';
-
-    return '$effectiveUser/$repo';
-  }
+  static const String defaultDatasetRepo = 'King758/nyro-android-data';
+  static const String defaultWebAppUrl = 'https://nyro-gate-study.onrender.com';
 
   Future<String> getEffectiveBucketRepo() async {
     final customBucket = await DatabaseService.instance.getHfBucket();
@@ -51,6 +20,15 @@ class CloudSyncService {
       return customBucket.trim();
     }
     return defaultBucketRepo;
+  }
+
+  Future<String> getEffectiveDatasetRepo({String? token}) async {
+    final customRepo = await DatabaseService.instance.getHfRepo();
+    if (customRepo != null && customRepo.trim().isNotEmpty) {
+      final r = customRepo.trim();
+      return r.contains('/') ? r : 'King758/$r';
+    }
+    return defaultDatasetRepo;
   }
 
   /// Verify user token and return HF username
@@ -68,38 +46,7 @@ class CloudSyncService {
     return null;
   }
 
-  /// Create a new Dataset repository on Hugging Face if not exists
-  Future<bool> createHfDatasetRepo({
-    required String token,
-    required String repoName,
-    bool isPrivate = true,
-  }) async {
-    final url = Uri.parse('https://huggingface.co/api/repos/create');
-    final cleanRepoName = repoName.contains('/') ? repoName.split('/').last : repoName;
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {
-          'Authorization': 'Bearer ${token.trim()}',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'name': cleanRepoName,
-          'type': 'dataset',
-          'private': isPrivate,
-        }),
-      );
-
-      // 200 or 201 means created; 409 means already exists (which is success)
-      if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 409) {
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  // 1. Download Master nyro.db from Telegram mini app bucket
+  // 1. Download Master nyro.db directly from Hugging Face Bucket
   Future<void> downloadCloudNyroDb({
     required String token,
     required bool smartMerge,
@@ -107,12 +54,30 @@ class CloudSyncService {
   }) async {
     final targetBucket = bucketRepo ?? await getEffectiveBucketRepo();
     final url = Uri.parse('https://huggingface.co/buckets/$targetBucket/resolve/nyro.db');
-    final response = await http.get(url, headers: {
-      'Authorization': 'Bearer ${token.trim()}',
-    });
+    
+    http.Response? response;
+    try {
+      response = await http.get(url, headers: {
+        'Authorization': 'Bearer ${token.trim()}',
+      });
+    } catch (_) {}
 
-    if (response.statusCode != 200) {
-      throw Exception('Failed to download cloud nyro.db (Status ${response.statusCode}): ${response.body}');
+    // Fallback: If direct bucket resolve fails, query WebApp API
+    if (response == null || response.statusCode != 200) {
+      try {
+        final fallbackUrl = Uri.parse('$defaultWebAppUrl/api/sync/db');
+        final fbRes = await http.get(fallbackUrl, headers: {
+          'Authorization': 'Bearer ${token.trim()}',
+        });
+        if (fbRes.statusCode == 200 && fbRes.bodyBytes.length > 500) {
+          response = fbRes;
+        }
+      } catch (_) {}
+    }
+
+    if (response == null || response.statusCode != 200) {
+      final errBody = response?.body ?? 'Network unreachable';
+      throw Exception('Failed to download cloud nyro.db from bucket $targetBucket: $errBody');
     }
 
     final tempDir = await getTemporaryDirectory();
@@ -128,29 +93,51 @@ class CloudSyncService {
     try {
       await File(tempPath).delete();
     } catch (_) {}
+
+    await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
   }
 
-  // 2. Upload local Android database to Hub as android_nyro.db via Git LFS
+  // 2. Upload local Android database to Hugging Face Bucket
   Future<void> uploadAndroidDbToHub({
     required String token,
-    String? datasetRepo,
+    String? bucketRepo,
   }) async {
-    final targetRepo = datasetRepo ?? await getEffectiveDatasetRepo(token: token);
+    final targetBucket = bucketRepo ?? await getEffectiveBucketRepo();
     final localDbPath = await DatabaseService.instance.getDbPath();
     final file = File(localDbPath);
     if (!await file.exists()) {
       throw Exception('Local database file not found at $localDbPath');
     }
     final bytes = await file.readAsBytes();
+
+    // Route 1: Push via WebApp Cloud Bridge to Hugging Face Bucket
+    bool webAppSynced = false;
+    try {
+      final uploadUri = Uri.parse('$defaultWebAppUrl/api/sync/upload');
+      final request = http.MultipartRequest('POST', uploadUri);
+      request.headers['Authorization'] = 'Bearer ${token.trim()}';
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: 'nyro.db',
+      ));
+
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
+      final res = await http.Response.fromStream(streamedResponse);
+      if (res.statusCode == 200) {
+        webAppSynced = true;
+      }
+    } catch (_) {}
+
+    if (webAppSynced) {
+      await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
+      return;
+    }
+
+    // Route 2: Fallback to existing Dataset repo (King758/nyro-android-data) via Git LFS
+    final targetRepo = await getEffectiveDatasetRepo(token: token);
     final sha256Hex = sha256.convert(bytes).toString();
     final size = bytes.length;
-
-    // Ensure dataset repo exists (or 409 already exists)
-    await createHfDatasetRepo(
-      token: token,
-      repoName: targetRepo,
-      isPrivate: true,
-    );
 
     // Step 1: Request Git LFS batch upload
     final batchUrl = Uri.parse('https://huggingface.co/datasets/$targetRepo.git/info/lfs/objects/batch');
@@ -182,7 +169,7 @@ class CloudSyncService {
     final batchData = jsonDecode(batchResponse.body) as Map<String, dynamic>;
     final objects = batchData['objects'] as List<dynamic>?;
     if (objects == null || objects.isEmpty) {
-      throw Exception('Invalid LFS batch response from Hugging Face');
+      throw Exception('Invalid LFS response from Hugging Face');
     }
 
     final firstObj = objects[0] as Map<String, dynamic>;
@@ -206,7 +193,7 @@ class CloudSyncService {
       }
     }
 
-    // Step 2b: Verify LFS upload if verify action provided (MANDATORY on Hugging Face S3 LFS!)
+    // Step 2b: Verify LFS upload if verify action provided
     if (actions != null && actions.containsKey('verify')) {
       final verifyInfo = actions['verify'] as Map<String, dynamic>;
       final verifyHref = verifyInfo['href'] as String;
@@ -260,30 +247,30 @@ class CloudSyncService {
     await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
   }
 
-  // 3. Download and restore android_nyro.db from Hub (with fallback to bucket nyro.db)
+  // 3. Download and restore android_nyro.db (with fallback to bucket nyro.db)
   Future<void> downloadAndRestoreAndroidDb({
     required String token,
     String? datasetRepo,
   }) async {
-    final targetRepo = datasetRepo ?? await getEffectiveDatasetRepo(token: token);
     final targetBucket = await getEffectiveBucketRepo();
+    final targetRepo = datasetRepo ?? await getEffectiveDatasetRepo(token: token);
 
-    // Primary: Download android_nyro.db from dataset repo
-    final datasetUrl = Uri.parse('https://huggingface.co/datasets/$targetRepo/resolve/main/android_nyro.db');
-    var response = await http.get(datasetUrl, headers: {
+    // Primary: Download nyro.db directly from Hugging Face Bucket
+    final bucketUrl = Uri.parse('https://huggingface.co/buckets/$targetBucket/resolve/nyro.db');
+    var response = await http.get(bucketUrl, headers: {
       'Authorization': 'Bearer ${token.trim()}',
     });
 
-    // Fallback: If dataset android_nyro.db returns 404, download master nyro.db from bucket
+    // Secondary: Download from dataset repo if bucket is empty
     if (response.statusCode != 200) {
-      final bucketUrl = Uri.parse('https://huggingface.co/buckets/$targetBucket/resolve/nyro.db');
-      response = await http.get(bucketUrl, headers: {
+      final datasetUrl = Uri.parse('https://huggingface.co/datasets/$targetRepo/resolve/main/android_nyro.db');
+      response = await http.get(datasetUrl, headers: {
         'Authorization': 'Bearer ${token.trim()}',
       });
     }
 
     if (response.statusCode != 200) {
-      throw Exception('Failed to download database from $targetRepo or $targetBucket (Status ${response.statusCode})');
+      throw Exception('Failed to download database from $targetBucket or $targetRepo (Status ${response.statusCode})');
     }
 
     final tempDir = await getTemporaryDirectory();
