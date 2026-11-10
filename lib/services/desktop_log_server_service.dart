@@ -777,7 +777,7 @@ class DesktopLogServerService {
   <header class="app-nav">
     <div class="nav-inner">
       <div class="brand-group">
-        <div class="brand-icon">✓</div>
+        <div class="brand-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
         <div>
           <span class="brand-title">NYRO Tasks Copilot</span>
           <span class="brand-version">v$version</span>
@@ -786,10 +786,10 @@ class DesktopLogServerService {
 
       <nav class="nav-tabs">
         <button class="tab-btn active" id="tabBtnLog" onclick="switchTab('log')">
-          <span>📝 Log Mistake</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg><span>Log Mistake</span>
         </button>
         <button class="tab-btn" id="tabBtnReview" onclick="switchTab('review')">
-          <span>📚 Mistake Archive</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span>Mistake Archive</span>
           <span class="tab-badge" id="navCount">0</span>
         </button>
       </nav>
@@ -800,7 +800,7 @@ class DesktopLogServerService {
           <span>Wi-Fi Shield Active</span>
         </div>
         <button class="shield-btn" onclick="logoutSession()" title="Lock dashboard & disconnect">
-          <span>🔒 Lock</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>Lock</span>
         </button>
       </div>
     </div>
@@ -819,7 +819,7 @@ class DesktopLogServerService {
           <p class="card-subtitle">Paste image from test series or lecture notes</p>
 
           <div class="paste-zone" id="pasteZone">
-            <p class="main-text">📋 Click or Press Ctrl+V</p>
+            <p class="main-text"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>Click or Press Ctrl+V</p>
             <p class="sub-text">Paste clipboard image directly</p>
             <input type="file" id="fileInput" accept="image/*" style="display: none;">
             <div class="preview-box" id="previewBox">
@@ -829,7 +829,7 @@ class DesktopLogServerService {
           </div>
 
           <div style="font-size: 12px; color: var(--subtext); line-height: 1.5; padding: 10px; background: #F8FAFC; border-radius: 8px;">
-            💡 <strong>Fast Logging Tip:</strong> When taking quizzes on MadeEasy, GateAcademy, or GateOverflow on laptop, use <code>Win + Shift + S</code> to snip the question, then switch here and hit <code>Ctrl + V</code>!
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg><strong>Fast Logging Tip:</strong> When taking quizzes on MadeEasy, GateAcademy, or GateOverflow on laptop, use <code>Win + Shift + S</code> to snip the question, then switch here and hit <code>Ctrl + V</code>!
           </div>
         </div>
 
@@ -886,7 +886,7 @@ class DesktopLogServerService {
 
             <div style="display: flex; justify-content: flex-end; gap: 12px;">
               <button type="submit" class="btn-primary" id="submitBtn">
-                <span>Save Mistake to Phone</span> ➔
+                <span>Save Mistake to Phone</span> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-left: 6px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
               </button>
             </div>
           </form>
@@ -921,7 +921,7 @@ class DesktopLogServerService {
       <!-- Filter & Search Toolbar -->
       <div class="filter-bar">
         <div class="search-box">
-          <span class="search-icon">🔍</span>
+          <span class="search-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
           <input type="text" id="searchInput" placeholder="Search by question, formula, concept, or takeaway..." oninput="onSearchChanged()">
         </div>
 
@@ -938,8 +938,8 @@ class DesktopLogServerService {
           </select>
 
           <select id="filterStatus" class="filter-select" onchange="applyFilters()">
-            <option value="">All Statuses</option>
-            <option value="PENDING" selected>Unresolved Only</option>
+            <option value="" selected>All Statuses</option>
+            <option value="PENDING">Unresolved Only</option>
             <option value="RESOLVED">Resolved Only</option>
           </select>
         </div>
@@ -958,7 +958,7 @@ class DesktopLogServerService {
   <!-- Wi-Fi Shield 6-Digit Authenticator Modal -->
   <div class="shield-modal-bg" id="shieldModal" style="display: none;">
     <div class="shield-card">
-      <div class="shield-icon">🛡️</div>
+      <div class="shield-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
       <h2 class="shield-title">Public Wi-Fi Shield</h2>
       <p class="shield-desc">
         Enter the <strong>6-digit Pairing Code</strong> shown in NYRO Tasks app on your mobile phone to unlock this laptop dashboard.
@@ -1199,7 +1199,11 @@ class DesktopLogServerService {
       const filtered = allMistakes.filter(m => {
         if (s && m.subject !== s) return false;
         if (sev && (m.severity || '').toUpperCase() !== sev) return false;
-        if (status && (m.status || 'PENDING').toUpperCase() !== status) return false;
+        if (status) {
+          const mStatus = (m.status || '').toUpperCase().trim();
+          const effectiveStatus = (mStatus === 'RESOLVED') ? 'RESOLVED' : 'PENDING';
+          if (effectiveStatus !== status) return false;
+        }
         if (q) {
           const matchQ = (m.topic || '').toLowerCase().includes(q) ||
                          (m.question_text || '').toLowerCase().includes(q) ||
@@ -1230,11 +1234,11 @@ class DesktopLogServerService {
         // Extract image url if stored in takeaway
         let imgHtml = '';
         let cleanTakeaway = m.key_takeaway || '';
-        const imgMatch = cleanTakeaway.match(/!\\[Screenshot\\]\\((.*?)\\)/);
+        const imgMatch = cleanTakeaway.match(/!\[Screenshot\]\((.*?)\)/);
         if (imgMatch) {
           const src = imgMatch[1];
           imgHtml = `<img src="\${src}" class="screenshot-thumb" alt="Screenshot" onclick="window.open('\${src}', '_blank')">`;
-          cleanTakeaway = cleanTakeaway.replace(/!\\[Screenshot\\]\\(.*?\\)/g, '').trim();
+          cleanTakeaway = cleanTakeaway.replace(/!\[Screenshot\]\(.*?\)/g, '').trim();
         }
 
         return `
@@ -1243,7 +1247,7 @@ class DesktopLogServerService {
               <div class="badge-wrap">
                 <span class="subj-pill">\${m.subject || 'General'}</span>
                 <span class="sev-pill sev-\${sev}">\${sev}</span>
-                \${m.quiz_title ? `<span class="quiz-pill">🎯 \${m.quiz_title}</span>` : ''}
+                \${m.quiz_title ? `<span class="quiz-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>\${m.quiz_title}</span>` : ''}
               </div>
               <span class="date-str">\${dateStr}</span>
             </div>
@@ -1252,8 +1256,8 @@ class DesktopLogServerService {
 
             \${(m.wrong_answer || m.correct_answer) ? `
               <div class="ans-box">
-                \${m.wrong_answer ? `<div class="wrong-ans">❌ Wrong: \${m.wrong_answer}</div>` : '<div></div>'}
-                \${m.correct_answer ? `<div class="correct-ans">✓ Correct: \${m.correct_answer}</div>` : '<div></div>'}
+                \${m.wrong_answer ? `<div class="wrong-ans"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Wrong: \${m.wrong_answer}</div>` : '<div></div>'}
+                \${m.correct_answer ? `<div class="correct-ans"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="20 6 9 17 4 12"/></svg>Correct: \${m.correct_answer}</div>` : '<div></div>'}
               </div>
             ` : ''}
 
@@ -1273,10 +1277,10 @@ class DesktopLogServerService {
 
             <div class="card-footer">
               <button class="act-btn resolve-btn" onclick="toggleResolve(\${m.id}, \${!isResolved})">
-                \${isResolved ? '↩ Re-open' : '✓ Mark Resolved'}
+                \${isResolved ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>Re-open' : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="20 6 9 17 4 12"/></svg>Mark Resolved'}
               </button>
               <button class="act-btn delete-btn" onclick="deleteMistake(\${m.id})">
-                🗑 Delete
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete
               </button>
             </div>
           </div>
@@ -1399,7 +1403,7 @@ class DesktopLogServerService {
 
         const data = await res.json();
         if (res.ok && data.success) {
-          showToast('✓ Mistake logged successfully to phone!');
+          showToast('Mistake logged successfully to phone!');
           // Clear inputs
           document.getElementById('topicInput').value = '';
           document.getElementById('correctInput').value = '';
@@ -1417,7 +1421,7 @@ class DesktopLogServerService {
         showToast('Network error logging blunder to phone');
       } finally {
         submitBtn.disabled = false;
-        submitBtn.innerText = 'Save Mistake to Phone ➔';
+        submitBtn.innerHTML = '<span>Save Mistake to Phone</span> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-left: 6px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
       }
     });
 

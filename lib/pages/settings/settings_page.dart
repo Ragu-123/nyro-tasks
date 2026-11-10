@@ -183,10 +183,12 @@ class _SettingsPageState extends State<SettingsPage> {
   // --- Cloud Actions ---
 
   Future<void> _saveCloudSettings() async {
+    final bucketVal = _bucketController.text.trim();
+    final repoVal = _repoController.text.trim().isNotEmpty ? _repoController.text.trim() : bucketVal;
     await DatabaseService.instance.setHfToken(_tokenController.text.trim());
     await DatabaseService.instance.setHfUsername(_usernameController.text.trim());
-    await DatabaseService.instance.setHfRepo(_repoController.text.trim());
-    await DatabaseService.instance.setHfBucket(_bucketController.text.trim());
+    await DatabaseService.instance.setHfRepo(repoVal);
+    await DatabaseService.instance.setHfBucket(bucketVal);
 
     TopBanner.show(
       context,
@@ -578,12 +580,15 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final cloudRepoSubtitle = _repoController.text.isNotEmpty
-        ? 'Repo: ${_repoController.text}'
+    final effectiveRepo = _bucketController.text.isNotEmpty
+        ? _bucketController.text
+        : _repoController.text;
+    final cloudRepoSubtitle = effectiveRepo.isNotEmpty
+        ? 'Bucket: $effectiveRepo'
         : (_tokenController.text.isNotEmpty ? 'Token configured' : 'Not configured');
 
     final serverSubtitle = _serverRunning
-        ? '🟢 Running on ${_serverUrl ?? "port 8080"}'
+        ? 'Active on ${_serverUrl ?? "port 8080"}'
         : 'Connect laptop to log exam blunders';
 
     return Scaffold(
@@ -881,7 +886,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     const Text('Local HTTP Server', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     Text(
-                      _serverRunning ? '🟢 Running on port 8080' : '🔴 Server stopped',
+                      _serverRunning ? 'Active on port 8080' : 'Server stopped',
                       style: TextStyle(fontSize: 12, color: _serverRunning ? googleGreen : googleTextSecondary),
                     ),
                   ],

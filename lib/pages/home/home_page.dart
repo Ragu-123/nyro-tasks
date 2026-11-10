@@ -292,7 +292,7 @@ class _HomePageState extends State<HomePage> {
                               style: const TextStyle(fontSize: 13, color: googleTextPrimary, fontWeight: FontWeight.w600),
                               items: [
                                 ...availableExistingSubjects.map((s) => DropdownMenuItem(value: s, child: Text(s))),
-                                const DropdownMenuItem(value: '__NEW__', child: Text('➕ Enter New Subject...', style: TextStyle(color: googleBlue))),
+                                const DropdownMenuItem(value: '__NEW__', child: Text('+ Enter New Subject...', style: TextStyle(color: googleBlue))),
                               ],
                               onChanged: (val) {
                                 if (val == '__NEW__') {
@@ -435,7 +435,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        '✓ Spaced repetition recall checkpoints (Day 1, 4, 7, 14, 30) will be generated automatically.',
+                        '• Spaced repetition recall checkpoints (Day 1, 4, 7, 14, 30) will be generated automatically.',
                         style: TextStyle(fontSize: 10.5, color: googleGreen, fontWeight: FontWeight.w500),
                       ),
                     ]
@@ -499,7 +499,7 @@ class _HomePageState extends State<HomePage> {
                               style: const TextStyle(fontSize: 13, color: googleTextPrimary, fontWeight: FontWeight.w600),
                               items: [
                                 ...availableExistingSubjects.map((s) => DropdownMenuItem(value: s, child: Text(s))),
-                                const DropdownMenuItem(value: '__NEW__', child: Text('➕ Enter New Subject...', style: TextStyle(color: googleBlue))),
+                                const DropdownMenuItem(value: '__NEW__', child: Text('+ Enter New Subject...', style: TextStyle(color: googleBlue))),
                               ],
                               onChanged: (val) {
                                 if (val == '__NEW__') {

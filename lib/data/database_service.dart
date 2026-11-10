@@ -974,6 +974,7 @@ class DatabaseService {
     final savedToken = await getHfToken();
     final savedUsername = await getHfUsername();
     final savedRepo = await getHfRepo();
+    final savedBucket = await getHfBucket();
     final localPath = await getDbPath();
 
     if (_db != null && _db!.isOpen) {
@@ -990,6 +991,7 @@ class DatabaseService {
     if (savedToken != null && savedToken.isNotEmpty) await setHfToken(savedToken);
     if (savedUsername != null && savedUsername.isNotEmpty) await setHfUsername(savedUsername);
     if (savedRepo != null && savedRepo.isNotEmpty) await setHfRepo(savedRepo);
+    if (savedBucket != null && savedBucket.isNotEmpty) await setHfBucket(savedBucket);
   }
 
   Future<void> smartMergeDatabase(String cloudDbPath) async {

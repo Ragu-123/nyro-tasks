@@ -49,7 +49,10 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   Future<void> _loadConfig() async {
     final token = await DatabaseService.instance.getHfToken();
     final username = await DatabaseService.instance.getHfUsername();
-    final repo = await DatabaseService.instance.getHfRepo();
+    final bucket = await DatabaseService.instance.getHfBucket();
+    final repo = (bucket != null && bucket.trim().isNotEmpty)
+        ? bucket.trim()
+        : await DatabaseService.instance.getHfRepo();
     final lastSync = await DatabaseService.instance.getConfig('last_synced_at');
 
     if (mounted) {
@@ -291,7 +294,9 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                   context,
                   MaterialPageRoute(builder: (context) => const SettingsPage(initialSection: 'cloud')),
                 );
-                _loadConfig();
+                if (mounted) {
+                  await _loadConfig();
+                }
               },
             ),
         ],
@@ -331,11 +336,11 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFE082).withOpacity(0.3),
+                      color: googleBlue.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     alignment: Alignment.center,
-                    child: const Text('🤗', style: TextStyle(fontSize: 24)),
+                    child: const Icon(Icons.cloud_done_rounded, size: 24, color: googleBlue),
                   ),
                   const SizedBox(width: 14),
                   const Expanded(
@@ -601,10 +606,12 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                 context,
                 MaterialPageRoute(builder: (context) => const SettingsPage(initialSection: 'cloud')),
               );
-              _loadConfig();
+              if (mounted) {
+                await _loadConfig();
+              }
             },
             icon: const Icon(Icons.tune_rounded, size: 16, color: googleBlue),
-            label: const Text('Change Token / Bucket in Settings ⚙️', style: TextStyle(fontSize: 12, color: googleBlue)),
+            label: const Text('Change Token / Bucket in Settings', style: TextStyle(fontSize: 12, color: googleBlue)),
           ),
         ),
         const SizedBox(height: 16),

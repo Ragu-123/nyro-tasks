@@ -527,7 +527,7 @@ class _TodayTabState extends State<TodayTab> {
                   if (widget.onOpenCloudSync != null)
                     OutlinedButton.icon(
                       onPressed: widget.onOpenCloudSync,
-                      icon: const Text('🤗', style: TextStyle(fontSize: 12)),
+                      icon: const Icon(Icons.cloud_sync_rounded, size: 14, color: googleBlue),
                       label: const Text('Cloud Sync', style: TextStyle(fontSize: 11)),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: googleTextPrimary,

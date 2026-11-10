@@ -121,6 +121,8 @@ class CloudSyncService {
       throw Exception('Local database file not found at $localDbPath');
     }
     final bytes = await file.readAsBytes();
+    final cleanRepo = targetBucket.contains('/') ? targetBucket : '$targetBucket';
+    final b64 = base64Encode(bytes);
 
     // Route 1: Push via Cloud Bridge to Hugging Face Bucket
     bool cloudBridgeSynced = false;
@@ -128,6 +130,7 @@ class CloudSyncService {
       final uploadUri = Uri.parse('$defaultWebAppUrl/api/sync/upload');
       final request = http.MultipartRequest('POST', uploadUri);
       request.headers['Authorization'] = 'Bearer ${token.trim()}';
+      request.headers['X-HF-Bucket'] = cleanRepo;
       request.files.add(http.MultipartFile.fromBytes(
         'file',
         bytes,
@@ -141,125 +144,139 @@ class CloudSyncService {
       }
     } catch (_) {}
 
+    // Fallback trigger: WebApp /api/sync endpoint
+    if (!cloudBridgeSynced) {
+      try {
+        final syncUri = Uri.parse('$defaultWebAppUrl/api/sync');
+        final syncRes = await http.post(
+          syncUri,
+          headers: {
+            'Authorization': 'Bearer ${token.trim()}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'bucket': cleanRepo}),
+        ).timeout(const Duration(seconds: 30));
+        if (syncRes.statusCode == 200) {
+          final body = jsonDecode(syncRes.body);
+          if (body['synced'] == true) {
+            cloudBridgeSynced = true;
+          }
+        }
+      } catch (_) {}
+    }
+
     if (cloudBridgeSynced) {
       await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
       return;
     }
 
-    // Route 2: Push directly via Git LFS / Dataset commit to user repo
-    final cleanRepo = targetBucket.contains('/') ? targetBucket : '$targetBucket';
-    final sha256Hex = sha256.convert(bytes).toString();
-    final size = bytes.length;
-
-    // Step 1: Request Git LFS batch upload
-    final batchUrl = Uri.parse('https://huggingface.co/datasets/$cleanRepo.git/info/lfs/objects/batch');
-    final batchPayload = jsonEncode({
-      'operation': 'upload',
-      'transfers': ['basic'],
-      'objects': [
-        {
-          'oid': sha256Hex,
-          'size': size,
-        }
-      ],
-    });
-
-    final batchResponse = await http.post(
-      batchUrl,
-      headers: {
-        'Accept': 'application/vnd.git-lfs+json',
-        'Content-Type': 'application/vnd.git-lfs+json',
+    // Route 2: Check if target is a dataset repo (instant commit without LFS)
+    bool isDataset = false;
+    try {
+      final dsCheckUrl = Uri.parse('https://huggingface.co/api/datasets/$cleanRepo');
+      final dsCheckRes = await http.get(dsCheckUrl, headers: {
         'Authorization': 'Bearer ${token.trim()}',
-      },
-      body: batchPayload,
-    );
-
-    if (batchResponse.statusCode != 200) {
-      throw Exception('Cloud backup failed (${batchResponse.statusCode}): ${batchResponse.body}');
-    }
-
-    final batchData = jsonDecode(batchResponse.body) as Map<String, dynamic>;
-    final objects = batchData['objects'] as List<dynamic>?;
-    if (objects == null || objects.isEmpty) {
-      throw Exception('Invalid cloud storage response');
-    }
-
-    final firstObj = objects[0] as Map<String, dynamic>;
-    final actions = firstObj['actions'] as Map<String, dynamic>?;
-
-    // Step 2: Upload raw file bytes
-    if (actions != null && actions.containsKey('upload')) {
-      final uploadInfo = actions['upload'] as Map<String, dynamic>;
-      final href = uploadInfo['href'] as String;
-      final rawHeaders = uploadInfo['header'] as Map<String, dynamic>? ?? {};
-      final uploadHeaders = rawHeaders.map((k, v) => MapEntry(k, v.toString()));
-
-      final putResponse = await http.put(
-        Uri.parse(href),
-        headers: uploadHeaders,
-        body: bytes,
-      );
-
-      if (putResponse.statusCode != 200 && putResponse.statusCode != 201) {
-        throw Exception('Cloud write failed (${putResponse.statusCode}): ${putResponse.body}');
+      }).timeout(const Duration(seconds: 10));
+      if (dsCheckRes.statusCode == 200) {
+        isDataset = true;
       }
-    }
+    } catch (_) {}
 
-    // Step 2b: Verify LFS upload
-    if (actions != null && actions.containsKey('verify')) {
-      final verifyInfo = actions['verify'] as Map<String, dynamic>;
-      final verifyHref = verifyInfo['href'] as String;
-      final rawHeaders = verifyInfo['header'] as Map<String, dynamic>? ?? {};
-      final verifyHeaders = rawHeaders.map((k, v) => MapEntry(k, v.toString()));
-      verifyHeaders['Content-Type'] = 'application/vnd.git-lfs+json';
-
-      final verifyResponse = await http.post(
-        Uri.parse(verifyHref),
-        headers: verifyHeaders,
-        body: jsonEncode({
-          'oid': sha256Hex,
-          'size': size,
+    if (isDataset) {
+      final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$cleanRepo/commit/main');
+      final ndjsonLines = [
+        jsonEncode({'key': 'header', 'value': {'summary': 'Sync database backup from NYRO Tasks'}}),
+        jsonEncode({
+          'key': 'file',
+          'value': {
+            'content': b64,
+            'path': 'nyro.db',
+            'encoding': 'base64',
+          }
         }),
-      );
+        jsonEncode({
+          'key': 'file',
+          'value': {
+            'content': b64,
+            'path': 'android_nyro.db',
+            'encoding': 'base64',
+          }
+        }),
+      ];
+      final commitPayload = '${ndjsonLines.join('\n')}\n';
 
-      if (verifyResponse.statusCode != 200) {
-        throw Exception('Cloud verification failed (${verifyResponse.statusCode}): ${verifyResponse.body}');
+      final commitResponse = await http.post(
+        commitUrl,
+        headers: {
+          'Authorization': 'Bearer ${token.trim()}',
+          'Content-Type': 'application/x-ndjson',
+        },
+        body: utf8.encode(commitPayload),
+      ).timeout(const Duration(seconds: 45));
+
+      if (commitResponse.statusCode == 200) {
+        await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
+        return;
+      } else {
+        throw Exception('Dataset commit failed (${commitResponse.statusCode}): ${commitResponse.body}');
       }
     }
 
-    // Step 3: Commit pointer
-    final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$cleanRepo/commit/main');
-    final ndjsonLines = [
-      jsonEncode({'key': 'header', 'value': {'summary': 'Sync database backup from NYRO Tasks'}}),
-      jsonEncode({
-        'key': 'lfsFile',
-        'value': {
-          'path': 'nyro.db',
-          'algo': 'sha256',
-          'oid': sha256Hex,
-          'size': size,
+    // Route 3: Check fallback dataset repo if configured
+    final fallbackRepo = await DatabaseService.instance.getHfRepo();
+    if (fallbackRepo != null && fallbackRepo.trim().isNotEmpty && fallbackRepo.trim() != cleanRepo) {
+      final fbClean = fallbackRepo.contains('/') ? fallbackRepo.trim() : fallbackRepo.trim();
+      try {
+        final dsCheckUrl = Uri.parse('https://huggingface.co/api/datasets/$fbClean');
+        final dsCheckRes = await http.get(dsCheckUrl, headers: {
+          'Authorization': 'Bearer ${token.trim()}',
+        }).timeout(const Duration(seconds: 10));
+        if (dsCheckRes.statusCode == 200) {
+          final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$fbClean/commit/main');
+          final ndjsonLines = [
+            jsonEncode({'key': 'header', 'value': {'summary': 'Sync database backup from NYRO Tasks'}}),
+            jsonEncode({
+              'key': 'file',
+              'value': {
+                'content': b64,
+                'path': 'nyro.db',
+                'encoding': 'base64',
+              }
+            }),
+            jsonEncode({
+              'key': 'file',
+              'value': {
+                'content': b64,
+                'path': 'android_nyro.db',
+                'encoding': 'base64',
+              }
+            }),
+          ];
+          final commitPayload = '${ndjsonLines.join('\n')}\n';
+
+          final commitResponse = await http.post(
+            commitUrl,
+            headers: {
+              'Authorization': 'Bearer ${token.trim()}',
+              'Content-Type': 'application/x-ndjson',
+            },
+            body: utf8.encode(commitPayload),
+          ).timeout(const Duration(seconds: 45));
+
+          if (commitResponse.statusCode == 200) {
+            await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
+            return;
+          }
         }
-      }),
-    ];
-    final commitPayload = '${ndjsonLines.join('\n')}\n';
-
-    final commitResponse = await http.post(
-      commitUrl,
-      headers: {
-        'Authorization': 'Bearer ${token.trim()}',
-        'Content-Type': 'application/x-ndjson',
-      },
-      body: utf8.encode(commitPayload),
-    );
-
-    if (commitResponse.statusCode != 200) {
-      throw Exception('Cloud commit failed (${commitResponse.statusCode}): ${commitResponse.body}');
+      } catch (_) {}
     }
 
-    await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
+    throw Exception(
+      'Cloud backup to "$cleanRepo" could not complete. Please verify your Hugging Face write token and bucket/dataset configuration.',
+    );
   }
 
-  // 3. Download and restore database directly from Hugging Face Bucket
+  // 3. Download and restore database directly from Hugging Face Bucket or Dataset
   Future<void> downloadAndRestoreAndroidDb({
     required String token,
     String? bucketRepo,
@@ -271,6 +288,17 @@ class CloudSyncService {
     var response = await http.get(bucketUrl, headers: {
       'Authorization': 'Bearer ${token.trim()}',
     });
+
+    // Primary 1b: Download android_nyro.db from Hugging Face Bucket
+    if (response.statusCode != 200) {
+      final bucketAndroidUrl = Uri.parse('https://huggingface.co/buckets/$targetBucket/resolve/android_nyro.db');
+      final bRes = await http.get(bucketAndroidUrl, headers: {
+        'Authorization': 'Bearer ${token.trim()}',
+      });
+      if (bRes.statusCode == 200) {
+        response = bRes;
+      }
+    }
 
     // Fallback 1: Query WebApp cloud bridge
     if (response.statusCode != 200) {
@@ -293,6 +321,14 @@ class CloudSyncService {
       });
       if (dsRes.statusCode == 200) {
         response = dsRes;
+      } else {
+        final datasetAndroidUrl = Uri.parse('https://huggingface.co/datasets/$targetBucket/resolve/main/android_nyro.db');
+        final dsAndroidRes = await http.get(datasetAndroidUrl, headers: {
+          'Authorization': 'Bearer ${token.trim()}',
+        });
+        if (dsAndroidRes.statusCode == 200) {
+          response = dsAndroidRes;
+        }
       }
     }
 
