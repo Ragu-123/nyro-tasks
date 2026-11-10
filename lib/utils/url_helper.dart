@@ -14,3 +14,7 @@ Future<void> openExternalUrl(String? urlString) async {
     debugPrint('Error launching URL ($urlString): $e');
   }
 }
+
+class UrlHelper {
+  static Future<void> launchURL(String? urlString) => openExternalUrl(urlString);
+}

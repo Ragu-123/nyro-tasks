@@ -6,12 +6,14 @@ import 'package:tasks/widgets/google_checkbox.dart';
 class TimetableTab extends StatefulWidget {
   final VoidCallback onDataChanged;
   final String selectedSubject;
+  final List<String>? availableSubjects;
   final VoidCallback? onOpenFilter;
 
   const TimetableTab({
     Key? key,
     required this.onDataChanged,
     this.selectedSubject = 'All Subjects',
+    this.availableSubjects,
     this.onOpenFilter,
   }) : super(key: key);
 
@@ -32,13 +34,24 @@ class _TimetableTabState extends State<TimetableTab> {
   void initState() {
     super.initState();
     _activeSubject = widget.selectedSubject;
+    if (widget.availableSubjects != null && widget.availableSubjects!.isNotEmpty) {
+      _availableSubjects = widget.availableSubjects!;
+    }
     _loadSubjectsAndCurriculum();
   }
 
   @override
   void didUpdateWidget(covariant TimetableTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedSubject != widget.selectedSubject && widget.selectedSubject != _activeSubject) {
+    if (widget.availableSubjects != null && widget.availableSubjects != oldWidget.availableSubjects) {
+      setState(() {
+        _availableSubjects = widget.availableSubjects!;
+        if (!_availableSubjects.contains(_activeSubject)) {
+          _activeSubject = 'All Subjects';
+        }
+      });
+      _loadCurriculum();
+    } else if (oldWidget.selectedSubject != widget.selectedSubject && widget.selectedSubject != _activeSubject) {
       _activeSubject = widget.selectedSubject;
       _loadCurriculum();
     }
