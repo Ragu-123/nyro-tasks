@@ -75,8 +75,13 @@ class _SettingsPageState extends State<SettingsPage> {
     // Cloud
     _tokenController.text = (await DatabaseService.instance.getHfToken()) ?? '';
     _usernameController.text = (await DatabaseService.instance.getHfUsername()) ?? '';
-    _repoController.text = (await DatabaseService.instance.getHfRepo()) ?? '';
-    _bucketController.text = (await DatabaseService.instance.getHfBucket()) ?? (await DatabaseService.instance.getHfRepo()) ?? '';
+    final savedBucket = await DatabaseService.instance.getHfBucket();
+    final savedRepo = await DatabaseService.instance.getHfRepo();
+    final effectiveBucket = (savedBucket != null && savedBucket.trim().isNotEmpty)
+        ? savedBucket.trim()
+        : (savedRepo ?? '');
+    _bucketController.text = effectiveBucket;
+    _repoController.text = effectiveBucket;
 
     // Server
     _serverRunning = DesktopLogServerService.instance.isRunning;
@@ -184,11 +189,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _saveCloudSettings() async {
     final bucketVal = _bucketController.text.trim();
-    final repoVal = _repoController.text.trim().isNotEmpty ? _repoController.text.trim() : bucketVal;
+    _repoController.text = bucketVal;
     await DatabaseService.instance.setHfToken(_tokenController.text.trim());
     await DatabaseService.instance.setHfUsername(_usernameController.text.trim());
-    await DatabaseService.instance.setHfRepo(repoVal);
     await DatabaseService.instance.setHfBucket(bucketVal);
+    await DatabaseService.instance.setHfRepo(bucketVal);
 
     TopBanner.show(
       context,

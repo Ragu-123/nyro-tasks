@@ -352,7 +352,11 @@ class _QuizzesTabState extends State<QuizzesTab> {
                         itemBuilder: (context, idx) {
                           final m = mistakes[idx];
                           final topic = m['topic'] ?? '';
+                          final qText = m['question_text'] ?? '';
+                          final reason = m['mistake_reason'] ?? '';
                           final takeaway = m['key_takeaway'] ?? '';
+                          final wrong = (m['wrong_answer'] as String?)?.trim() ?? '';
+                          final correct = (m['correct_answer'] as String?)?.trim() ?? '';
                           final sev = m['severity'] ?? 'MEDIUM';
 
                           Color sevCol = severityMed;
@@ -392,12 +396,44 @@ class _QuizzesTabState extends State<QuizzesTab> {
                                     ),
                                   ],
                                 ),
+                                if (qText.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  const Text('Question / Source:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+                                  const SizedBox(height: 2),
+                                  MarkdownBody(
+                                    data: qText,
+                                    styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                      p: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.3),
+                                    ),
+                                    onTapLink: (text, href, title) => openExternalUrl(href),
+                                  ),
+                                ],
+                                if (wrong.isNotEmpty || correct.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      if (wrong.isNotEmpty)
+                                        Expanded(
+                                          child: Text('Wrong: $wrong', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: severityHigh)),
+                                        ),
+                                      if (correct.isNotEmpty)
+                                        Expanded(
+                                          child: Text('Correct: $correct', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleGreen)),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                                if (reason.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text('Trap: $reason', style: const TextStyle(fontSize: 11, color: severityMed)),
+                                ],
                                 const SizedBox(height: 6),
                                 MarkdownBody(
                                   data: takeaway,
                                   styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
                                     p: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.3),
                                   ),
+                                  onTapLink: (text, href, title) => openExternalUrl(href),
                                 ),
                               ],
                             ),

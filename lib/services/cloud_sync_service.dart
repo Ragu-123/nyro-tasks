@@ -131,13 +131,14 @@ class CloudSyncService {
       final request = http.MultipartRequest('POST', uploadUri);
       request.headers['Authorization'] = 'Bearer ${token.trim()}';
       request.headers['X-HF-Bucket'] = cleanRepo;
+      request.fields['bucket'] = cleanRepo;
       request.files.add(http.MultipartFile.fromBytes(
         'file',
         bytes,
         filename: 'nyro.db',
       ));
 
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
       final res = await http.Response.fromStream(streamedResponse);
       if (res.statusCode == 200) {
         cloudBridgeSynced = true;
@@ -153,9 +154,10 @@ class CloudSyncService {
           headers: {
             'Authorization': 'Bearer ${token.trim()}',
             'Content-Type': 'application/json',
+            'X-HF-Bucket': cleanRepo,
           },
           body: jsonEncode({'bucket': cleanRepo}),
-        ).timeout(const Duration(seconds: 30));
+        ).timeout(const Duration(seconds: 35));
         if (syncRes.statusCode == 200) {
           final body = jsonDecode(syncRes.body);
           if (body['synced'] == true) {
@@ -271,6 +273,23 @@ class CloudSyncService {
       } catch (_) {}
     }
 
+    // Check if target is a bucket
+    bool isBucket = false;
+    try {
+      final bucketCheckUrl = Uri.parse('https://huggingface.co/api/buckets/$cleanRepo');
+      final bCheckRes = await http.get(bucketCheckUrl, headers: {
+        'Authorization': 'Bearer ${token.trim()}',
+      }).timeout(const Duration(seconds: 10));
+      if (bCheckRes.statusCode == 200 || bCheckRes.statusCode == 302) {
+        isBucket = true;
+      }
+    } catch (_) {}
+
+    final customBucket = await DatabaseService.instance.getHfBucket();
+    if (isBucket || (customBucket != null && customBucket.trim().isNotEmpty)) {
+      throw Exception('Cloud sync bridge to bucket timed out. Please try again in a few moments.');
+    }
+
     throw Exception(
       'Cloud backup to "$cleanRepo" could not complete. Please verify your Hugging Face write token and bucket/dataset configuration.',
     );
@@ -306,7 +325,8 @@ class CloudSyncService {
         final fbUrl = Uri.parse('$defaultWebAppUrl/api/sync/db');
         final fbRes = await http.get(fbUrl, headers: {
           'Authorization': 'Bearer ${token.trim()}',
-        });
+          'X-HF-Bucket': targetBucket,
+        }).timeout(const Duration(seconds: 60));
         if (fbRes.statusCode == 200 && fbRes.bodyBytes.length > 500) {
           response = fbRes;
         }
@@ -333,6 +353,9 @@ class CloudSyncService {
     }
 
     if (response.statusCode != 200) {
+      if (response.statusCode == 404) {
+        throw Exception('No backup file found in "$targetBucket" (HTTP 404). Please upload a backup first.');
+      }
       throw Exception('Failed to download database from $targetBucket (HTTP ${response.statusCode})');
     }
 

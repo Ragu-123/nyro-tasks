@@ -20,6 +20,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   String? _token;
   String? _username;
   String? _repo;
+  String? _bucket;
   String? _lastSyncedAt;
   bool _isLoading = true;
   bool _isSyncing = false;
@@ -59,7 +60,8 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
       setState(() {
         _token = token;
         _username = username;
-        _repo = repo;
+        _bucket = (bucket != null && bucket.trim().isNotEmpty) ? bucket.trim() : repo;
+        _repo = _bucket;
         _lastSyncedAt = lastSync;
         _isLoading = false;
       });
@@ -285,20 +287,19 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (isConfigured)
-            IconButton(
-              icon: const Icon(Icons.settings_outlined, color: googleTextSecondary),
-              tooltip: 'Cloud Settings',
-              onPressed: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsPage(initialSection: 'cloud')),
-                );
-                if (mounted) {
-                  await _loadConfig();
-                }
-              },
-            ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: googleTextSecondary),
+            tooltip: 'Cloud Settings',
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsPage(initialSection: 'cloud')),
+              );
+              if (mounted) {
+                await _loadConfig();
+              }
+            },
+          ),
         ],
       ),
       body: _isLoading
@@ -518,6 +519,22 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                       : const Text('Save & Connect Cloud Backup', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                 ),
               ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SettingsPage(initialSection: 'cloud')),
+                    );
+                    if (mounted) {
+                      await _loadConfig();
+                    }
+                  },
+                  icon: const Icon(Icons.tune_rounded, size: 16, color: googleBlue),
+                  label: const Text('Configure Token & Bucket in Settings', style: TextStyle(fontSize: 12.5, color: googleBlue)),
+                ),
+              ),
             ],
           ),
         ),
@@ -534,6 +551,13 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         syncTimeDisplay = 'Last backed up: ${DateFormat('d MMM yyyy • hh:mm a').format(dt)}';
       }
     }
+
+    final displayUser = (_username != null && _username!.isNotEmpty)
+        ? '@$_username'
+        : ((_bucket != null && _bucket!.contains('/'))
+            ? '@${_bucket!.split('/')[0]}'
+            : 'Hugging Face Hub');
+    final displayBucket = _bucket ?? _repo ?? 'Storage Bucket';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -565,7 +589,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                     Row(
                       children: [
                         Text(
-                          _username != null && _username!.isNotEmpty ? '@$_username' : 'Hugging Face Hub',
+                          displayUser,
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
                         ),
                         const SizedBox(width: 6),
@@ -581,7 +605,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _repo ?? 'Storage Bucket',
+                      displayBucket,
                       style: const TextStyle(fontSize: 12, color: googleTextSecondary),
                     ),
                     const SizedBox(height: 2),

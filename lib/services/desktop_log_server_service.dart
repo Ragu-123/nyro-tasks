@@ -657,18 +657,20 @@ class DesktopLogServerService {
     .date-str { font-size: 12px; color: var(--subtext); }
 
     .q-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+    .feed-card.resolved .q-title { text-decoration: line-through; color: var(--subtext); }
     
     .ans-box {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      display: flex;
+      flex-wrap: wrap;
       gap: 12px;
       margin-bottom: 14px;
       background: #F8FAFC;
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 12px;
     }
-    .wrong-ans { color: var(--red); font-size: 13px; font-weight: 600; }
-    .correct-ans { color: var(--green); font-size: 13px; font-weight: 600; }
+    .wrong-ans { color: var(--red); font-size: 13px; font-weight: 600; flex: 1; min-width: 220px; }
+    .correct-ans { color: var(--green); font-size: 13px; font-weight: 600; flex: 1; min-width: 220px; }
 
     .markdown-block {
       background: #FFFFFF;
@@ -679,13 +681,28 @@ class DesktopLogServerService {
       font-size: 13.5px;
       line-height: 1.6;
     }
+    .markdown-block.question {
+      border-left-color: #64748B;
+      background: #F8FAFC;
+    }
+    .markdown-block.reason {
+      border-left-color: var(--blue);
+      background: #FFFFFF;
+    }
     .markdown-block.takeaway {
       border-left-color: var(--amber);
       background: #FFFBEB;
     }
     .block-tag { font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; display: block; }
+    .block-tag.t-question { color: #475569; }
     .block-tag.t-reason { color: var(--blue); }
     .block-tag.t-takeaway { color: var(--amber); }
+
+    .resolved-pill {
+      font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+      background: var(--green-bg); color: var(--green); display: inline-flex; align-items: center; gap: 4px;
+    }
+    .act-btn.copy-btn:hover { color: var(--blue); border-color: rgba(26,115,232,0.3); }
 
     .markdown-block a {
       color: var(--blue);
@@ -855,22 +872,27 @@ class DesktopLogServerService {
               </div>
 
               <div class="col-full">
-                <label>Topic / Question Identification</label>
-                <input type="text" id="topicInput" placeholder="e.g. Q18: Eigenvalues of Skew-Symmetric Matrix" required>
+                <label>Topic / Core Concept</label>
+                <input type="text" id="topicInput" placeholder="e.g. Linear Independence, Matrix Limits" required>
+              </div>
+
+              <div class="col-full">
+                <label>Question / Problem Statement (or Source URL)</label>
+                <textarea id="questionInput" placeholder="Paste question text, problem statement, or GateOverflow / quiz URL..."></textarea>
+              </div>
+
+              <div class="col-full">
+                <label>Quiz / Test Series Title (Optional)</label>
+                <input type="text" id="quizInput" placeholder="e.g. MadeEasy Topic Test 02, GO Weekly Quiz 1">
               </div>
 
               <div>
-                <label>Quiz / Test Series Title (Optional)</label>
-                <input type="text" id="quizInput" placeholder="e.g. MadeEasy Topic Test 02">
+                <label>My Wrong Answer / Initial Attempt</label>
+                <input type="text" id="wrongInput" placeholder="e.g. All eigenvalues are real">
               </div>
               <div>
                 <label>Correct Answer</label>
                 <input type="text" id="correctInput" placeholder="e.g. Purely imaginary or zero">
-              </div>
-
-              <div class="col-full">
-                <label>My Wrong Answer / Initial Attempt</label>
-                <input type="text" id="wrongInput" placeholder="e.g. All eigenvalues are real">
               </div>
 
               <div class="col-full">
@@ -999,26 +1021,69 @@ class DesktopLogServerService {
       setTimeout(() => { t.style.display = 'none'; }, 3200);
     }
 
-    // Helper: Markdown parser with clickable URLs
+    // Helper: HTML escaper for safe attribute/tag injection
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Helper: Markdown parser with clickable URLs, markdown links, images, code, and bold/italic
     function renderMarkdown(rawText) {
       if (!rawText) return '';
-      let escaped = rawText
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
+      let escaped = String(rawText)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 
-      // Auto-link URLs
-      escaped = escaped.replace(/(https?:\\/\\/[^\\s<]+)/g, '<a href="\$1" target="_blank" rel="noopener noreferrer">\$1 ↗</a>');
+      const tokens = [];
 
-      // Bold & Italic
+      // 1. Markdown Images: ![alt](url)
+      escaped = escaped.replace(/!\[(.*?)\]\((https?:\\/\\/[^\\s\\)]+|\\/api\\/images\\/[^\\s\\)]+)\)/g, (match, alt, src) => {
+        const idx = tokens.length;
+        tokens.push(`<img src="\${src}" class="screenshot-thumb" alt="\${alt || 'Screenshot'}" onclick="window.open('\${src}', '_blank')">`);
+        return `___TOKEN_\${idx}___`;
+      });
+
+      // 2. Markdown Links: [text](url)
+      escaped = escaped.replace(/\[(.*?)\]\((https?:\\/\\/[^\\s\\)]+)\)/g, (match, text, url) => {
+        const idx = tokens.length;
+        tokens.push(`<a href="\${url}" target="_blank" rel="noopener noreferrer">\${text} ↗</a>`);
+        return `___TOKEN_\${idx}___`;
+      });
+
+      // 3. Inline Code: `code`
+      escaped = escaped.replace(/`([^`]+)`/g, (match, code) => {
+        const idx = tokens.length;
+        tokens.push(`<code>\${code}</code>`);
+        return `___TOKEN_\${idx}___`;
+      });
+
+      // 4. Auto-link bare URLs (not inside markdown links)
+      escaped = escaped.replace(/(https?:\\/\\/[^\\s<]+)/g, (match, url) => {
+        let trailing = '';
+        while (url.length > 0 && /[\\.,;\\)]\$/.test(url)) {
+          trailing = url.slice(-1) + trailing;
+          url = url.slice(0, -1);
+        }
+        return `<a href="\${url}" target="_blank" rel="noopener noreferrer">\${url} ↗</a>\${trailing}`;
+      });
+
+      // 5. Bold & Italic
       escaped = escaped.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>\$1</strong>');
-      escaped = escaped.replace(/\\*(.*?)\\*/g, '<em>\$1</em>');
+      escaped = escaped.replace(/(^|[\\s(])\\*([^\\*\\s][^\\*]*?[^\\*\\s]|\\S)\\*(?=[\\s\\).,!?]|\$)/g, '\$1<em>\$2</em>');
 
-      // Inline Code
-      escaped = escaped.replace(/`([^`]+)`/g, '<code>\$1</code>');
-
-      // Convert linebreaks
+      // 6. Convert linebreaks
       escaped = escaped.replace(/\\n/g, '<br>');
+
+      // 7. Restore tokens
+      escaped = escaped.replace(/___TOKEN_(\\d+)___/g, (match, idx) => {
+        return tokens[Number(idx)];
+      });
 
       return escaped;
     }
@@ -1207,6 +1272,8 @@ class DesktopLogServerService {
         if (q) {
           const matchQ = (m.topic || '').toLowerCase().includes(q) ||
                          (m.question_text || '').toLowerCase().includes(q) ||
+                         (m.wrong_answer || '').toLowerCase().includes(q) ||
+                         (m.correct_answer || '').toLowerCase().includes(q) ||
                          (m.mistake_reason || '').toLowerCase().includes(q) ||
                          (m.key_takeaway || '').toLowerCase().includes(q) ||
                          (m.subject || '').toLowerCase().includes(q) ||
@@ -1229,7 +1296,9 @@ class DesktopLogServerService {
       feed.innerHTML = items.map(m => {
         const isResolved = (m.status || '').toUpperCase() === 'RESOLVED';
         const sev = (m.severity || 'MEDIUM').toUpperCase();
-        const dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        const rawDate = (m.created_at || '').replace(' ', 'T');
+        const d = rawDate ? new Date(rawDate) : null;
+        const dateStr = (d && !isNaN(d.getTime())) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
         // Extract image url if stored in takeaway
         let imgHtml = '';
@@ -1241,41 +1310,65 @@ class DesktopLogServerService {
           cleanTakeaway = cleanTakeaway.replace(/!\[Screenshot\]\(.*?\)/g, '').trim();
         }
 
+        // Extract image url if stored in question_text
+        let cleanQText = m.question_text || '';
+        const qImgMatch = cleanQText.match(/!\[Screenshot\]\((.*?)\)/);
+        let qImgHtml = '';
+        if (qImgMatch) {
+          const src = qImgMatch[1];
+          qImgHtml = `<img src="\${src}" class="screenshot-thumb" alt="Question Screenshot" onclick="window.open('\${src}', '_blank')">`;
+          cleanQText = cleanQText.replace(/!\[Screenshot\]\(.*?\)/g, '').trim();
+        }
+
         return `
           <div class="feed-card \${isResolved ? 'resolved' : ''}">
             <div class="card-head">
               <div class="badge-wrap">
-                <span class="subj-pill">\${m.subject || 'General'}</span>
+                <span class="subj-pill">\${escapeHtml(m.subject || 'General')}</span>
                 <span class="sev-pill sev-\${sev}">\${sev}</span>
-                \${m.quiz_title ? `<span class="quiz-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>\${m.quiz_title}</span>` : ''}
+                \${m.quiz_title ? `<span class="quiz-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>\${escapeHtml(m.quiz_title)}</span>` : ''}
+                \${isResolved ? `<span class="resolved-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 3px;"><polyline points="20 6 9 17 4 12"/></svg>Resolved</span>` : ''}
               </div>
-              <span class="date-str">\${dateStr}</span>
+              \${dateStr ? `<span class="date-str">\${escapeHtml(dateStr)}</span>` : ''}
             </div>
 
-            <div class="q-title">\${m.topic || m.question_text || 'Test Question'}</div>
+            <div class="q-title">\${escapeHtml(m.topic || 'Mistake Record')}</div>
+
+            \${(cleanQText || qImgHtml) ? `
+              <div class="markdown-block question">
+                <span class="block-tag t-question">Question / Source</span>
+                \${cleanQText ? renderMarkdown(cleanQText) : ''}
+                \${qImgHtml}
+              </div>
+            ` : ''}
 
             \${(m.wrong_answer || m.correct_answer) ? `
               <div class="ans-box">
-                \${m.wrong_answer ? `<div class="wrong-ans"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Wrong: \${m.wrong_answer}</div>` : '<div></div>'}
-                \${m.correct_answer ? `<div class="correct-ans"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="20 6 9 17 4 12"/></svg>Correct: \${m.correct_answer}</div>` : '<div></div>'}
+                \${m.wrong_answer ? `<div class="wrong-ans"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Wrong Attempt: \${escapeHtml(m.wrong_answer)}</div>` : ''}
+                \${m.correct_answer ? `<div class="correct-ans"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="20 6 9 17 4 12"/></svg>Correct Answer: \${escapeHtml(m.correct_answer)}</div>` : ''}
               </div>
             ` : ''}
 
             \${m.mistake_reason ? `
-              <div class="markdown-block">
+              <div class="markdown-block reason">
                 <span class="block-tag t-reason">Trap / Why I Slipped</span>
                 \${renderMarkdown(m.mistake_reason)}
               </div>
             ` : ''}
 
-            <div class="markdown-block takeaway">
-              <span class="block-tag t-takeaway">Core Takeaway to Remember</span>
-              \${renderMarkdown(cleanTakeaway)}
-            </div>
+            \${cleanTakeaway ? `
+              <div class="markdown-block takeaway">
+                <span class="block-tag t-takeaway">Core Takeaway to Remember</span>
+                \${renderMarkdown(cleanTakeaway)}
+              </div>
+            ` : ''}
 
             \${imgHtml}
 
             <div class="card-footer">
+              <button class="act-btn copy-btn" onclick="copyMistake(\${m.id})" title="Copy complete note">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy Note
+              </button>
               <button class="act-btn resolve-btn" onclick="toggleResolve(\${m.id}, \${!isResolved})">
                 \${isResolved ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>Re-open' : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><polyline points="20 6 9 17 4 12"/></svg>Mark Resolved'}
               </button>
@@ -1286,6 +1379,40 @@ class DesktopLogServerService {
           </div>
         `;
       }).join('');
+    }
+
+    function copyMistake(id) {
+      const m = allMistakes.find(x => x.id == id);
+      if (!m) return;
+      let text = `\${m.topic || 'Mistake Record'} (\${m.subject || 'General'}`;
+      if (m.quiz_title) text += ` • \${m.quiz_title}`;
+      text += `)\n\n`;
+      if (m.question_text) text += `Question / Source:\n\${m.question_text}\n\n`;
+      if (m.wrong_answer) text += `Wrong Attempt: \${m.wrong_answer}\n`;
+      if (m.correct_answer) text += `Correct Answer: \${m.correct_answer}\n`;
+      if (m.wrong_answer || m.correct_answer) text += `\n`;
+      if (m.mistake_reason) text += `Trap / Why I Slipped:\n\${m.mistake_reason}\n\n`;
+      if (m.key_takeaway) text += `Core Takeaway:\n\${m.key_takeaway}\n`;
+      
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text.trim()).then(() => {
+          showToast('Note copied to clipboard!');
+        }).catch(() => {
+          fallbackCopyText(text.trim());
+        });
+      } else {
+        fallbackCopyText(text.trim());
+      }
+    }
+
+    function fallbackCopyText(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('Note copied to clipboard!');
     }
 
     function toggleResolve(id, resolveState) {
@@ -1383,6 +1510,7 @@ class DesktopLogServerService {
         subject: document.getElementById('subjectInput').value.trim(),
         severity: document.getElementById('severitySelect').value,
         topic: document.getElementById('topicInput').value.trim(),
+        question_text: document.getElementById('questionInput').value.trim(),
         quiz_title: document.getElementById('quizInput').value.trim(),
         correct_answer: document.getElementById('correctInput').value.trim(),
         wrong_answer: document.getElementById('wrongInput').value.trim(),
@@ -1406,6 +1534,7 @@ class DesktopLogServerService {
           showToast('Mistake logged successfully to phone!');
           // Clear inputs
           document.getElementById('topicInput').value = '';
+          document.getElementById('questionInput').value = '';
           document.getElementById('correctInput').value = '';
           document.getElementById('wrongInput').value = '';
           document.getElementById('reasonInput').value = '';

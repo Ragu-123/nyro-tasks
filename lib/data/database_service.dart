@@ -701,8 +701,8 @@ class DatabaseService {
     }
     if (searchQuery != null && searchQuery.trim().isNotEmpty) {
       final q = searchQuery.trim();
-      sql += ' AND (lower(topic) LIKE lower(?) OR lower(question_text) LIKE lower(?) OR lower(key_takeaway) LIKE lower(?) OR lower(mistake_reason) LIKE lower(?))';
-      args.addAll(['%$q%', '%$q%', '%$q%', '%$q%']);
+      sql += ' AND (lower(topic) LIKE lower(?) OR lower(question_text) LIKE lower(?) OR lower(key_takeaway) LIKE lower(?) OR lower(mistake_reason) LIKE lower(?) OR lower(wrong_answer) LIKE lower(?) OR lower(correct_answer) LIKE lower(?))';
+      args.addAll(['%$q%', '%$q%', '%$q%', '%$q%', '%$q%', '%$q%']);
     }
 
     sql += ' ORDER BY id DESC';

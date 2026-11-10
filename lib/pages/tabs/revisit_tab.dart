@@ -205,6 +205,8 @@ class _RevisitTabState extends State<RevisitTab> {
     final reason = m['mistake_reason'] ?? '';
     final takeaway = m['key_takeaway'] ?? '';
     final quiz = m['quiz_title'] ?? '';
+    final wrong = (m['wrong_answer'] as String?)?.trim() ?? '';
+    final correct = (m['correct_answer'] as String?)?.trim() ?? '';
 
     Color sevColor = severityMed;
     if (severity == 'HIGH') sevColor = severityHigh;
@@ -260,8 +262,14 @@ class _RevisitTabState extends State<RevisitTab> {
                     icon: const Icon(Icons.copy, size: 18, color: googleTextSecondary),
                     tooltip: 'Copy Note',
                     onPressed: () {
-                      final fullText = '$topic ($subject)\n\n$qText\n\nTakeaway:\n$takeaway';
-                      Clipboard.setData(ClipboardData(text: fullText));
+                      String fullText = '$topic ($subject${quiz.isNotEmpty ? " • $quiz" : ""})\n\n';
+                      if (qText.isNotEmpty) fullText += 'Question / Source:\n$qText\n\n';
+                      if (wrong.isNotEmpty) fullText += 'Wrong: $wrong\n';
+                      if (correct.isNotEmpty) fullText += 'Correct: $correct\n';
+                      if (wrong.isNotEmpty || correct.isNotEmpty) fullText += '\n';
+                      if (reason.isNotEmpty) fullText += 'Why It Went Wrong:\n$reason\n\n';
+                      if (takeaway.isNotEmpty) fullText += 'Takeaway:\n$takeaway\n';
+                      Clipboard.setData(ClipboardData(text: fullText.trim()));
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Note copied to clipboard!')),
                       );
@@ -299,6 +307,35 @@ class _RevisitTabState extends State<RevisitTab> {
                         onTapLink: (text, href, title) => openExternalUrl(href),
                       ),
                       const SizedBox(height: 16),
+                    ],
+                    if (wrong.isNotEmpty || correct.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: googleHairline),
+                        ),
+                        child: Row(
+                          children: [
+                            if (wrong.isNotEmpty)
+                              Expanded(
+                                child: Text(
+                                  'Wrong: $wrong',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: severityHigh),
+                                ),
+                              ),
+                            if (correct.isNotEmpty)
+                              Expanded(
+                                child: Text(
+                                  'Correct: $correct',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: googleGreen),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ],
                     if (reason.isNotEmpty) ...[
                       const Text('WHY IT WENT WRONG', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: severityMed)),

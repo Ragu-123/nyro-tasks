@@ -13,6 +13,8 @@ void showAddMistakeModalSheet(
   final topicController = TextEditingController();
   final quizController = TextEditingController();
   final questionController = TextEditingController();
+  final wrongController = TextEditingController();
+  final correctController = TextEditingController();
   final reasonController = TextEditingController();
   final takeawayController = TextEditingController();
   String severity = 'MEDIUM';
@@ -129,6 +131,31 @@ void showAddMistakeModalSheet(
                               style: const TextStyle(fontSize: 12, color: googleTextSecondary),
                             ),
                             const SizedBox(height: 12),
+                            if (questionController.text.isNotEmpty) ...[
+                              const Text('QUESTION / SOURCE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+                              const SizedBox(height: 4),
+                              MarkdownBody(
+                                data: questionController.text,
+                                selectable: true,
+                                onTapLink: (text, href, title) => openExternalUrl(href),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            if (wrongController.text.isNotEmpty || correctController.text.isNotEmpty) ...[
+                              Row(
+                                children: [
+                                  if (wrongController.text.isNotEmpty)
+                                    Expanded(
+                                      child: Text('Wrong: ${wrongController.text}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: severityHigh)),
+                                    ),
+                                  if (correctController.text.isNotEmpty)
+                                    Expanded(
+                                      child: Text('Correct: ${correctController.text}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleGreen)),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                            ],
                             if (reasonController.text.isNotEmpty) ...[
                               const Text('WHY IT WENT WRONG', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: severityMed)),
                               const SizedBox(height: 4),
@@ -251,7 +278,29 @@ void showAddMistakeModalSheet(
                             ),
                             const SizedBox(height: 12),
 
-                            // 5. What Went Wrong
+                            // 5. Wrong Attempt & Correct Answer
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildInputBox(
+                                    controller: wrongController,
+                                    label: 'Wrong Answer (Optional)',
+                                    hint: 'e.g., Option B',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _buildInputBox(
+                                    controller: correctController,
+                                    label: 'Correct Answer (Optional)',
+                                    hint: 'e.g., Option C',
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // 6. What Went Wrong
                             _buildInputBox(
                               controller: reasonController,
                               label: 'What Went Wrong (Reason)',
@@ -260,7 +309,7 @@ void showAddMistakeModalSheet(
                             ),
                             const SizedBox(height: 12),
 
-                            // 6. Key Takeaways & Formulas (Markdown)
+                            // 7. Key Takeaways & Formulas (Markdown)
                             _buildInputBox(
                               controller: takeawayController,
                               label: 'Key Takeaways & Formulas (Markdown)',
@@ -287,6 +336,8 @@ void showAddMistakeModalSheet(
                         subject: selectedSubject,
                         topic: top,
                         questionText: questionController.text.trim(),
+                        wrongAnswer: wrongController.text.trim(),
+                        correctAnswer: correctController.text.trim(),
                         mistakeReason: reason,
                         keyTakeaway: takeaway.isNotEmpty ? takeaway : (reason.isNotEmpty ? reason : top),
                         quizTitle: quizController.text.trim(),
