@@ -75,8 +75,8 @@ class _SettingsPageState extends State<SettingsPage> {
     // Cloud
     _tokenController.text = (await DatabaseService.instance.getHfToken()) ?? '';
     _usernameController.text = (await DatabaseService.instance.getHfUsername()) ?? '';
-    _repoController.text = (await DatabaseService.instance.getHfRepo()) ?? 'nyro-android-data';
-    _bucketController.text = (await DatabaseService.instance.getHfBucket()) ?? 'King758/gate2027-nyro';
+    _repoController.text = (await DatabaseService.instance.getHfRepo()) ?? '';
+    _bucketController.text = (await DatabaseService.instance.getHfBucket()) ?? (await DatabaseService.instance.getHfRepo()) ?? '';
 
     // Server
     _serverRunning = DesktopLogServerService.instance.isRunning;
@@ -795,7 +795,7 @@ class _SettingsPageState extends State<SettingsPage> {
             TextField(
               controller: _usernameController,
               decoration: InputDecoration(
-                hintText: 'e.g. King758',
+                hintText: 'e.g. username (or auto-detected from token)',
                 isDense: true,
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
@@ -805,12 +805,21 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 12),
 
-            const Text('Dataset Repo Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Hugging Face Storage Bucket', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                InkWell(
+                  onTap: () => openExternalUrl('https://huggingface.co/new-bucket'),
+                  child: const Text('Create Bucket ↗', style: TextStyle(fontSize: 11, color: googleBlue, decoration: TextDecoration.underline)),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
             TextField(
-              controller: _repoController,
+              controller: _bucketController,
               decoration: InputDecoration(
-                hintText: 'nyro-android-data',
+                hintText: 'e.g. gate2027-nyro or username/my-bucket',
                 isDense: true,
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),

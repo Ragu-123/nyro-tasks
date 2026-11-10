@@ -25,11 +25,11 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
   bool _isSyncing = false;
   String _syncStatusText = '';
 
-  // First-time setup controllers
+  // Setup controllers for any user
   final _tokenController = TextEditingController();
-  final _usernameController = TextEditingController(text: 'King758');
-  final _repoController = TextEditingController(text: 'King758/gate2027-nyro');
-  bool _createNewRepo = false;
+  final _usernameController = TextEditingController();
+  final _repoController = TextEditingController(text: 'gate2027-nyro');
+  bool _createBucketInApp = false;
   bool _isSettingUp = false;
 
   @override
@@ -79,6 +79,17 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
       return;
     }
 
+    if (repo.isEmpty) {
+      TopBanner.show(
+        context,
+        title: 'Missing Bucket Name',
+        message: 'Please enter your Hugging Face storage bucket name.',
+        icon: Icons.warning_amber_rounded,
+        color: googleRed,
+      );
+      return;
+    }
+
     setState(() {
       _isSettingUp = true;
     });
@@ -96,11 +107,11 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
       final effectiveRepo = repo.contains('/') ? repo : '$username/$repo';
 
-      // Create repo if requested
-      if (_createNewRepo) {
-        await CloudSyncService.instance.createHfDatasetRepo(
+      // Create bucket on Hugging Face if requested
+      if (_createBucketInApp) {
+        await CloudSyncService.instance.createHfBucket(
           token: token,
-          repoName: effectiveRepo,
+          bucketRepo: effectiveRepo,
           isPrivate: true,
         );
       }
@@ -108,11 +119,12 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
       await DatabaseService.instance.setHfToken(token);
       await DatabaseService.instance.setHfUsername(username);
       await DatabaseService.instance.setHfRepo(effectiveRepo);
+      await DatabaseService.instance.setHfBucket(effectiveRepo);
 
       TopBanner.show(
         context,
         title: 'Cloud Connected',
-        message: 'Hugging Face repository linked successfully.',
+        message: 'Hugging Face Bucket ($effectiveRepo) linked successfully.',
         icon: Icons.check_circle_outline_rounded,
         color: googleGreen,
       );
@@ -148,7 +160,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
       await DatabaseService.instance.addInAppNotification(
         title: 'Database Backed Up',
-        message: 'Uploaded to ${_repo ?? "Hub"}',
+        message: 'Uploaded to ${_repo ?? "Hub Bucket"}',
         type: 'CLOUD_SYNC',
       );
 
@@ -168,54 +180,6 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         title: 'Upload Failed',
         message: e.toString().replaceAll('Exception: ', ''),
         icon: Icons.cloud_off_outlined,
-        color: googleRed,
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSyncing = false;
-          _syncStatusText = '';
-        });
-      }
-    }
-  }
-
-  Future<void> _smartSyncFromBucket() async {
-    if (_token == null || _token!.isEmpty) return;
-
-    setState(() {
-      _isSyncing = true;
-      _syncStatusText = 'Smart merging master nyro.db from Hugging Face Bucket...';
-    });
-
-    try {
-      await CloudSyncService.instance.downloadCloudNyroDb(
-        token: _token!,
-        smartMerge: true,
-      );
-
-      await DatabaseService.instance.addInAppNotification(
-        title: 'Bucket Smart Sync',
-        message: 'Merged master nyro.db from ${_repo ?? "King758/gate2027-nyro"}',
-        type: 'CLOUD_SYNC',
-      );
-
-      TopBanner.show(
-        context,
-        title: 'Smart Sync Completed',
-        message: 'Master cloud database merged without losing your local progress.',
-        icon: Icons.sync_rounded,
-        color: googleGreen,
-      );
-
-      await _loadConfig();
-      widget.onDataChanged?.call();
-    } catch (e) {
-      TopBanner.show(
-        context,
-        title: 'Sync Failed',
-        message: e.toString().replaceAll('Exception: ', ''),
-        icon: Icons.error_outline_rounded,
         color: googleRed,
       );
     } finally {
@@ -270,7 +234,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
       await DatabaseService.instance.addInAppNotification(
         title: 'Database Restored',
-        message: 'Downloaded from ${_repo ?? "Hub"}',
+        message: 'Downloaded from ${_repo ?? "Hub Bucket"}',
         type: 'CLOUD_SYNC',
       );
 
@@ -310,7 +274,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text(
-          'Cloud Sync',
+          'Cloud Backup & Sync',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: googleTextPrimary),
         ),
         leading: IconButton(
@@ -379,12 +343,12 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Hugging Face Bucket Setup',
+                          'Hugging Face Cloud Backup',
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Connect your private storage bucket (King758/gate2027-nyro) to sync study data across devices.',
+                          'Use Hugging Face Storage Buckets as your personal cloud backup for study progress and mistakes.',
                           style: TextStyle(fontSize: 12, color: googleTextSecondary),
                         ),
                       ],
@@ -392,6 +356,52 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+
+              // Educational guide box for creating a bucket
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.info_outline_rounded, size: 16, color: googleBlue),
+                        SizedBox(width: 6),
+                        Text(
+                          'How to set up your Bucket:',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '1. Get your Access Token with Write permissions.\n'
+                      '2. Create a Storage Bucket on Hugging Face (choose Private).\n'
+                      '3. Enter your Token and Bucket name below to connect.',
+                      style: TextStyle(fontSize: 11.5, color: googleTextPrimary, height: 1.4),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        InkWell(
+                          onTap: () => openExternalUrl('https://huggingface.co/new-bucket'),
+                          child: const Text(
+                            'Create Bucket on Hugging Face ↗',
+                            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: googleBlue, decoration: TextDecoration.underline),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
               const SizedBox(height: 20),
 
               // Token Field
@@ -426,14 +436,14 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               const SizedBox(height: 12),
               // Username Field
               const Text(
-                'HUGGING FACE USERNAME',
+                'HUGGING FACE USERNAME (OPTIONAL)',
                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.5),
               ),
               const SizedBox(height: 6),
               TextField(
                 controller: _usernameController,
                 decoration: InputDecoration(
-                  hintText: 'e.g. King758',
+                  hintText: 'Leave empty to auto-detect from token',
                   hintStyle: const TextStyle(fontSize: 13, color: googleBorder),
                   filled: true,
                   fillColor: Colors.white,
@@ -444,9 +454,9 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               ),
 
               const SizedBox(height: 16),
-              // Repository Selection
+              // Bucket Name Field
               const Text(
-                'HUGGING FACE BUCKET',
+                'STORAGE BUCKET NAME',
                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.5),
               ),
               const SizedBox(height: 8),
@@ -454,19 +464,36 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               TextField(
                 controller: _repoController,
                 decoration: InputDecoration(
-                  hintText: 'King758/gate2027-nyro',
+                  hintText: 'e.g. gate2027-nyro or username/my-bucket',
                   hintStyle: const TextStyle(fontSize: 13, color: googleBorder),
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
                   enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: googleBorder)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  helperText: 'Your private bucket storing nyro.db (e.g. King758/gate2027-nyro)',
+                  helperText: 'Your private bucket storing nyro.db backup',
                   helperStyle: const TextStyle(fontSize: 11),
                 ),
               ),
+              const SizedBox(height: 12),
 
-              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Checkbox(
+                    value: _createBucketInApp,
+                    activeColor: googleBlue,
+                    onChanged: (val) => setState(() => _createBucketInApp = val ?? false),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Create this private bucket for me on Hugging Face',
+                      style: TextStyle(fontSize: 12.5, color: googleTextPrimary),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 height: 48,
@@ -483,7 +510,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                           height: 20,
                           child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                         )
-                      : const Text('Save & Connect Cloud Hub', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                      : const Text('Save & Connect Cloud Backup', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -495,11 +522,11 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
 
   // --- Active Sync Dashboard ---
   Widget _buildSyncDashboard() {
-    String syncTimeDisplay = 'Never synced';
+    String syncTimeDisplay = 'Never backed up';
     if (_lastSyncedAt != null) {
       final dt = DateTime.tryParse(_lastSyncedAt!);
       if (dt != null) {
-        syncTimeDisplay = 'Last synced: ${DateFormat('d MMM yyyy • hh:mm a').format(dt)}';
+        syncTimeDisplay = 'Last backed up: ${DateFormat('d MMM yyyy • hh:mm a').format(dt)}';
       }
     }
 
@@ -543,13 +570,13 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                             color: googleGreen.withOpacity(0.12),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Text('ACTIVE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: googleGreen)),
+                          child: const Text('CONNECTED', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: googleGreen)),
                         ),
                       ],
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _repo ?? 'nyro-android-data',
+                      _repo ?? 'Storage Bucket',
                       style: const TextStyle(fontSize: 12, color: googleTextSecondary),
                     ),
                     const SizedBox(height: 2),
@@ -577,7 +604,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
               _loadConfig();
             },
             icon: const Icon(Icons.tune_rounded, size: 16, color: googleBlue),
-            label: const Text('Modify Token / Username in Settings ⚙️', style: TextStyle(fontSize: 12, color: googleBlue)),
+            label: const Text('Change Token / Bucket in Settings ⚙️', style: TextStyle(fontSize: 12, color: googleBlue)),
           ),
         ),
         const SizedBox(height: 16),
@@ -608,42 +635,31 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
           ),
         ],
 
-        // BUCKET SYNC ACTIONS
+        // THE TWO PROMINENT BACKUP & RESTORE ACTIONS
         const Text(
-          'HUGGING FACE BUCKET ACTIONS',
+          'CLOUD BACKUP & RESTORE',
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextSecondary, letterSpacing: 0.6),
         ),
         const SizedBox(height: 12),
 
-        // Action 1: Smart Sync & Merge from Bucket
-        _buildActionCard(
-          icon: Icons.sync_rounded,
-          iconColor: googleBlue,
-          title: 'Smart Sync from Bucket',
-          description: 'Pulls the master nyro.db from your private Hugging Face Bucket (King758/gate2027-nyro) and smart merges study progress without losing your local changes.',
-          buttonLabel: 'Smart Sync from Bucket',
-          onTap: _isSyncing ? null : _smartSyncFromBucket,
-        ),
-        const SizedBox(height: 16),
-
-        // Action 2: Upload DB to Bucket
+        // Action 1: Upload Backup to Hub
         _buildActionCard(
           icon: Icons.cloud_upload_outlined,
-          iconColor: googleAmber,
-          title: 'Upload DB to Bucket',
-          description: 'Pushes your local database (ticks, mistakes, reminders) to Hugging Face Bucket King758/gate2027-nyro to keep all devices in sync.',
-          buttonLabel: 'Upload DB to Bucket',
+          iconColor: googleBlue,
+          title: 'Upload Backup to Hub',
+          description: 'Upload your current study ticks, completed checkboxes, mistake notebook, and custom reminders to your private Hugging Face bucket as cloud backup.',
+          buttonLabel: 'Upload Backup Now',
           onTap: _isSyncing ? null : _uploadDatabase,
         ),
         const SizedBox(height: 16),
 
-        // Action 3: Restore DB from Bucket
+        // Action 2: Restore DB from Hub
         _buildActionCard(
           icon: Icons.cloud_download_outlined,
           iconColor: googleGreen,
-          title: 'Full Restore from Bucket',
-          description: 'Downloads the master nyro.db from Hugging Face Bucket and completely restores your study database on this phone.',
-          buttonLabel: 'Restore DB from Bucket',
+          title: 'Restore Database from Hub',
+          description: 'Download your saved nyro.db backup from Hugging Face and restore all your study progress onto this phone.',
+          buttonLabel: 'Restore Database Now',
           onTap: _isSyncing ? null : _restoreDatabase,
         ),
       ],

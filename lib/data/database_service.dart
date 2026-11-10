@@ -677,6 +677,7 @@ class DatabaseService {
     String? status,
     String? severity,
     String? quizTitle,
+    String? searchQuery,
   }) async {
     final db = await database;
     String sql = 'SELECT * FROM mistake_records WHERE 1=1';
@@ -697,6 +698,11 @@ class DatabaseService {
     if (quizTitle != null && quizTitle.isNotEmpty) {
       sql += ' AND lower(quiz_title) LIKE lower(?)';
       args.add('%$quizTitle%');
+    }
+    if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+      final q = searchQuery.trim();
+      sql += ' AND (lower(topic) LIKE lower(?) OR lower(question_text) LIKE lower(?) OR lower(key_takeaway) LIKE lower(?) OR lower(mistake_reason) LIKE lower(?))';
+      args.addAll(['%$q%', '%$q%', '%$q%', '%$q%']);
     }
 
     sql += ' ORDER BY id DESC';
