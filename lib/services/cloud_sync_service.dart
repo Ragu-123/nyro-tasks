@@ -91,13 +91,51 @@ class CloudSyncService {
     return false;
   }
 
-  /// Backward-compatible alias for creating a storage repo
+  /// Programmatically create a new Dataset repository on Hugging Face
   Future<bool> createHfDatasetRepo({
     required String token,
     required String repoName,
     bool isPrivate = true,
   }) async {
-    return await createHfBucket(token: token, bucketRepo: repoName, isPrivate: isPrivate);
+    try {
+      String name = repoName.trim();
+      String? organization;
+      if (repoName.contains('/')) {
+        final parts = repoName.trim().split('/');
+        final namespace = parts[0];
+        name = parts[1];
+        final me = await whoAmI(token);
+        if (me != null && namespace.toLowerCase() != me.toLowerCase() && namespace.toLowerCase() != 'me') {
+          organization = namespace;
+        }
+      }
+
+      final url = Uri.parse('https://huggingface.co/api/repos/create');
+      final payload = <String, dynamic>{
+        'name': name,
+        'type': 'dataset',
+        'private': isPrivate,
+      };
+      if (organization != null) {
+        payload['organization'] = organization;
+      }
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer ${token.trim()}',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201 || response.statusCode == 409) {
+        return true;
+      }
+    } catch (_) {}
+
+    // Fallback attempt: also try bucket endpoint
+    await createHfBucket(token: token, bucketRepo: repoName, isPrivate: isPrivate);
+    return false;
   }
 
   // 1. Download nyro.db directly from user's Hugging Face Bucket
@@ -187,6 +225,16 @@ class CloudSyncService {
         }).timeout(const Duration(seconds: 10));
         if (dsCheckRes.statusCode == 200) {
           isDataset = true;
+        } else if (dsCheckRes.statusCode == 404) {
+          // Auto-create dataset repo if not present on user's account
+          final created = await createHfDatasetRepo(
+            token: token,
+            repoName: cleanRepo,
+            isPrivate: true,
+          );
+          if (created) {
+            isDataset = true;
+          }
         }
       } catch (_) {}
 
@@ -363,6 +411,50 @@ class CloudSyncService {
         if (dsAndroidRes.statusCode == 200) {
           response = dsAndroidRes;
         }
+      }
+    }
+
+    // Fallback 3: Check configured secondary repo or known user datasets (e.g. King758/nyro-android-data)
+    if (response.statusCode != 200) {
+      final candidates = <String>[];
+      final savedRepo = await DatabaseService.instance.getHfRepo();
+      if (savedRepo != null && savedRepo.trim().isNotEmpty && savedRepo.trim() != targetBucket) {
+        candidates.add(savedRepo.trim());
+      }
+      final who = await whoAmI(token);
+      if (who != null && who.trim().isNotEmpty) {
+        final userDs = '${who.trim()}/nyro-android-data';
+        if (!candidates.contains(userDs) && userDs != targetBucket) {
+          candidates.add(userDs);
+        }
+      }
+      const knownData = 'King758/nyro-android-data';
+      if (!candidates.contains(knownData) && targetBucket != knownData) {
+        candidates.add(knownData);
+      }
+
+      for (final candidate in candidates) {
+        final candUrl = Uri.parse('https://huggingface.co/datasets/$candidate/resolve/main/nyro.db');
+        try {
+          final cRes = await http.get(candUrl, headers: {
+            'Authorization': 'Bearer ${token.trim()}',
+          });
+          if (cRes.statusCode == 200) {
+            response = cRes;
+            break;
+          }
+        } catch (_) {}
+
+        final candAndroidUrl = Uri.parse('https://huggingface.co/datasets/$candidate/resolve/main/android_nyro.db');
+        try {
+          final cRes = await http.get(candAndroidUrl, headers: {
+            'Authorization': 'Bearer ${token.trim()}',
+          });
+          if (cRes.statusCode == 200) {
+            response = cRes;
+            break;
+          }
+        } catch (_) {}
       }
     }
 

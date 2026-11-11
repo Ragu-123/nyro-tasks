@@ -1386,8 +1386,11 @@ class DesktopLogServerService {
 
     function updateStats() {
       const total = allMistakes.length;
-      const high = allMistakes.filter(m => (m.severity || '').toUpperCase() === 'HIGH').length;
-      const resolved = allMistakes.filter(m => (m.status || '').toUpperCase() === 'RESOLVED').length;
+      const high = allMistakes.filter(m => (m.severity || '').trim().toUpperCase() === 'HIGH').length;
+      const resolved = allMistakes.filter(m => {
+        const st = (m.status || '').trim().toUpperCase();
+        return st === 'RESOLVED' || st === 'COMPLETED' || st === 'DONE';
+      }).length;
       const pending = total - resolved;
 
       document.getElementById('statTotal').innerText = total;
@@ -1403,17 +1406,18 @@ class DesktopLogServerService {
 
     function applyFilters() {
       const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
-      const s = document.getElementById('filterSubject').value;
-      const sev = document.getElementById('filterSeverity').value;
-      const status = document.getElementById('filterStatus').value;
+      const s = (document.getElementById('filterSubject').value || '').trim().toLowerCase();
+      const sev = (document.getElementById('filterSeverity').value || '').trim().toUpperCase();
+      const status = (document.getElementById('filterStatus').value || '').trim().toUpperCase();
 
       const filtered = allMistakes.filter(m => {
-        if (s && m.subject !== s) return false;
-        if (sev && (m.severity || '').toUpperCase() !== sev) return false;
+        if (s && (m.subject || '').trim().toLowerCase() !== s) return false;
+        if (sev && (m.severity || '').trim().toUpperCase() !== sev) return false;
         if (status) {
-          const mStatus = (m.status || '').toUpperCase().trim();
-          const effectiveStatus = (mStatus === 'RESOLVED') ? 'RESOLVED' : 'PENDING';
-          if (effectiveStatus !== status) return false;
+          const mStatus = (m.status || '').trim().toUpperCase();
+          const isResolved = (mStatus === 'RESOLVED' || mStatus === 'COMPLETED' || mStatus === 'DONE');
+          if (status === 'RESOLVED' && !isResolved) return false;
+          if (status === 'PENDING' && isResolved) return false;
         }
         if (q) {
           const matchQ = (m.topic || '').toLowerCase().includes(q) ||

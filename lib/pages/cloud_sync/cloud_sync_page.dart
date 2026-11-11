@@ -154,6 +154,109 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
     }
   }
 
+  void _showQuickEditDialog() {
+    final tokenCtrl = TextEditingController(text: _token ?? '');
+    final bucketCtrl = TextEditingController(text: _bucket ?? _repo ?? '');
+    final userCtrl = TextEditingController(text: _username ?? '');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.tune_rounded, color: googleBlue, size: 22),
+            SizedBox(width: 8),
+            Text('Edit Bucket & Token', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Hugging Face Write Token', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              TextField(
+                controller: tokenCtrl,
+                obscureText: true,
+                decoration: InputDecoration(
+                  hintText: 'hf_...',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('Bucket / Dataset Repo', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              TextField(
+                controller: bucketCtrl,
+                decoration: InputDecoration(
+                  hintText: 'e.g. King758/nyrodb-android-tasks',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('Username (Optional)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              TextField(
+                controller: userCtrl,
+                decoration: InputDecoration(
+                  hintText: 'e.g. King758',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: googleGrey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final t = tokenCtrl.text.trim();
+              final b = bucketCtrl.text.trim();
+              var u = userCtrl.text.trim();
+              if (u.isEmpty && t.isNotEmpty) {
+                final detected = await CloudSyncService.instance.whoAmI(t);
+                if (detected != null && detected.isNotEmpty) {
+                  u = detected;
+                }
+              }
+              await DatabaseService.instance.setHfToken(t);
+              await DatabaseService.instance.setHfBucket(b);
+              await DatabaseService.instance.setHfRepo(b);
+              if (u.isNotEmpty) {
+                await DatabaseService.instance.setHfUsername(u);
+              }
+              Navigator.pop(ctx);
+              await _loadConfig();
+              if (mounted) {
+                TopBanner.show(
+                  context,
+                  title: 'Settings Updated',
+                  message: 'Bucket and token configuration updated successfully.',
+                  icon: Icons.check_circle_outline_rounded,
+                  color: googleGreen,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: googleBlue,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Save & Apply'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _uploadDatabase() async {
     if (_token == null || _token!.isEmpty) return;
 
@@ -617,6 +720,11 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
                     ),
                   ],
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, size: 20, color: googleBlue),
+                tooltip: 'Edit Token / Bucket',
+                onPressed: _showQuickEditDialog,
               ),
             ],
           ),

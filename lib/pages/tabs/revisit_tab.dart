@@ -89,8 +89,8 @@ class _RevisitTabState extends State<RevisitTab> {
 
     if (mounted) {
       setState(() {
-        _dueBacklog = results[0] as Map<String, dynamic>;
-        _matrixData = results[1] as Map<String, dynamic>;
+        _dueBacklog = results[0] as Map<String, List<Map<String, dynamic>>>;
+        _matrixData = results[1] as List<Map<String, dynamic>>;
         _mistakes = results[2] as List<Map<String, dynamic>>;
         if (cleanSubjs.isNotEmpty) {
           _availableSubjects = cleanSubjs;

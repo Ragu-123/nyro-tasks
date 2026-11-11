@@ -791,6 +791,9 @@ class _SettingsPageState extends State<SettingsPage> {
             TextField(
               controller: _tokenController,
               obscureText: true,
+              onChanged: (val) {
+                DatabaseService.instance.setHfToken(val.trim());
+              },
               decoration: InputDecoration(
                 hintText: 'hf_xxxxxxxxxxxxxxxxxxxxxxxx',
                 isDense: true,
@@ -806,6 +809,9 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 4),
             TextField(
               controller: _usernameController,
+              onChanged: (val) {
+                DatabaseService.instance.setHfUsername(val.trim());
+              },
               decoration: InputDecoration(
                 hintText: 'e.g. username (or auto-detected from token)',
                 isDense: true,
@@ -820,7 +826,7 @@ class _SettingsPageState extends State<SettingsPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Hugging Face Storage Bucket', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const Text('Hugging Face Storage Bucket / Dataset', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                 InkWell(
                   onTap: () => openExternalUrl('https://huggingface.co/new-bucket'),
                   child: const Text('Create Bucket ↗', style: TextStyle(fontSize: 11, color: googleBlue, decoration: TextDecoration.underline)),
@@ -830,8 +836,13 @@ class _SettingsPageState extends State<SettingsPage> {
             const SizedBox(height: 4),
             TextField(
               controller: _bucketController,
+              onChanged: (val) {
+                final v = val.trim();
+                DatabaseService.instance.setHfBucket(v);
+                DatabaseService.instance.setHfRepo(v);
+              },
               decoration: InputDecoration(
-                hintText: 'e.g. gate2027-nyro or username/my-bucket',
+                hintText: 'e.g. King758/nyrodb-android-tasks',
                 isDense: true,
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
