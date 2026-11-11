@@ -1447,7 +1447,7 @@ class DesktopLogServerService {
         const dateStr = (d && !isNaN(d.getTime())) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
         // Extract image url if stored in takeaway
-        const safeImgRegex = /^\/api\/images\/[a-zA-Z0-9_\-]+\.(jpg|jpeg|png|webp)$/i;
+        const safeImgRegex = /^\/api\/images\/[a-zA-Z0-9_\-]+\.(jpg|jpeg|png|webp)\$/i;
         let imgHtml = '';
         let cleanTakeaway = m.key_takeaway || '';
         const imgMatch = cleanTakeaway.match(/!\[Screenshot\]\((.*?)\)/);
