@@ -118,184 +118,192 @@ class CloudSyncService {
     if (!targetBucket.contains('/')) {
       targetBucket = await getEffectiveBucketRepo(token: token);
     }
-    final localDbPath = await DatabaseService.instance.getDbPath();
-    final file = File(localDbPath);
-    if (!await file.exists()) {
-      throw Exception('Local database file not found at $localDbPath');
-    }
-    final bytes = await file.readAsBytes();
-    final cleanRepo = targetBucket.trim();
-    final b64 = base64Encode(bytes);
 
-    // Route 1: Push via Cloud Bridge to Hugging Face Bucket
-    bool cloudBridgeSynced = false;
+    // Security & Credential Isolation: Export a sanitized copy with tokens and private keys stripped
+    final sanitizedDbPath = await DatabaseService.instance.exportSanitizedDatabaseForCloudUpload();
     try {
-      final uploadUri = Uri.parse('$defaultWebAppUrl/api/sync/upload');
-      final request = http.MultipartRequest('POST', uploadUri);
-      request.headers['Authorization'] = 'Bearer ${token.trim()}';
-      request.headers['X-HF-Bucket'] = cleanRepo;
-      request.fields['bucket'] = cleanRepo;
-      request.files.add(http.MultipartFile.fromBytes(
-        'file',
-        bytes,
-        filename: 'nyro.db',
-      ));
-
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
-      final res = await http.Response.fromStream(streamedResponse);
-      if (res.statusCode == 200) {
-        cloudBridgeSynced = true;
+      final file = File(sanitizedDbPath);
+      if (!await file.exists()) {
+        throw Exception('Sanitized database export file not found');
       }
-    } catch (_) {}
+      final bytes = await file.readAsBytes();
+      final cleanRepo = targetBucket.trim();
+      final b64 = base64Encode(bytes);
 
-    // Fallback trigger: WebApp /api/sync endpoint
-    if (!cloudBridgeSynced) {
+      // Route 1: Push via Cloud Bridge to Hugging Face Bucket
+      bool cloudBridgeSynced = false;
       try {
-        final syncUri = Uri.parse('$defaultWebAppUrl/api/sync');
-        final syncRes = await http.post(
-          syncUri,
-          headers: {
-            'Authorization': 'Bearer ${token.trim()}',
-            'Content-Type': 'application/json',
-            'X-HF-Bucket': cleanRepo,
-          },
-          body: jsonEncode({'bucket': cleanRepo}),
-        ).timeout(const Duration(seconds: 35));
-        if (syncRes.statusCode == 200) {
-          final body = jsonDecode(syncRes.body);
-          if (body['synced'] == true) {
-            cloudBridgeSynced = true;
-          }
+        final uploadUri = Uri.parse('$defaultWebAppUrl/api/sync/upload');
+        final request = http.MultipartRequest('POST', uploadUri);
+        request.headers['Authorization'] = 'Bearer ${token.trim()}';
+        request.headers['X-HF-Bucket'] = cleanRepo;
+        request.fields['bucket'] = cleanRepo;
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: 'nyro.db',
+        ));
+
+        final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+        final res = await http.Response.fromStream(streamedResponse);
+        if (res.statusCode == 200) {
+          cloudBridgeSynced = true;
         }
       } catch (_) {}
-    }
 
-    if (cloudBridgeSynced) {
-      await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
-      return;
-    }
-
-    // Route 2: Check if target is a dataset repo (instant commit without LFS)
-    bool isDataset = false;
-    try {
-      final dsCheckUrl = Uri.parse('https://huggingface.co/api/datasets/$cleanRepo');
-      final dsCheckRes = await http.get(dsCheckUrl, headers: {
-        'Authorization': 'Bearer ${token.trim()}',
-      }).timeout(const Duration(seconds: 10));
-      if (dsCheckRes.statusCode == 200) {
-        isDataset = true;
+      // Fallback trigger: WebApp /api/sync endpoint
+      if (!cloudBridgeSynced) {
+        try {
+          final syncUri = Uri.parse('$defaultWebAppUrl/api/sync');
+          final syncRes = await http.post(
+            syncUri,
+            headers: {
+              'Authorization': 'Bearer ${token.trim()}',
+              'Content-Type': 'application/json',
+              'X-HF-Bucket': cleanRepo,
+            },
+            body: jsonEncode({'bucket': cleanRepo}),
+          ).timeout(const Duration(seconds: 35));
+          if (syncRes.statusCode == 200) {
+            final body = jsonDecode(syncRes.body);
+            if (body['synced'] == true) {
+              cloudBridgeSynced = true;
+            }
+          }
+        } catch (_) {}
       }
-    } catch (_) {}
 
-    if (isDataset) {
-      final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$cleanRepo/commit/main');
-      final ndjsonLines = [
-        jsonEncode({'key': 'header', 'value': {'summary': 'Sync database backup from NYRO Tasks'}}),
-        jsonEncode({
-          'key': 'file',
-          'value': {
-            'content': b64,
-            'path': 'nyro.db',
-            'encoding': 'base64',
-          }
-        }),
-        jsonEncode({
-          'key': 'file',
-          'value': {
-            'content': b64,
-            'path': 'android_nyro.db',
-            'encoding': 'base64',
-          }
-        }),
-      ];
-      final commitPayload = '${ndjsonLines.join('\n')}\n';
-
-      final commitResponse = await http.post(
-        commitUrl,
-        headers: {
-          'Authorization': 'Bearer ${token.trim()}',
-          'Content-Type': 'application/x-ndjson',
-        },
-        body: utf8.encode(commitPayload),
-      ).timeout(const Duration(seconds: 45));
-
-      if (commitResponse.statusCode == 200) {
+      if (cloudBridgeSynced) {
         await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
         return;
-      } else {
-        throw Exception('Dataset commit failed (${commitResponse.statusCode}): ${commitResponse.body}');
       }
-    }
 
-    // Route 3: Check fallback dataset repo if configured
-    final fallbackRepo = await DatabaseService.instance.getHfRepo();
-    if (fallbackRepo != null && fallbackRepo.trim().isNotEmpty && fallbackRepo.trim() != cleanRepo) {
-      final fbClean = fallbackRepo.contains('/') ? fallbackRepo.trim() : fallbackRepo.trim();
+      // Route 2: Check if target is a dataset repo (instant commit without LFS)
+      bool isDataset = false;
       try {
-        final dsCheckUrl = Uri.parse('https://huggingface.co/api/datasets/$fbClean');
+        final dsCheckUrl = Uri.parse('https://huggingface.co/api/datasets/$cleanRepo');
         final dsCheckRes = await http.get(dsCheckUrl, headers: {
           'Authorization': 'Bearer ${token.trim()}',
         }).timeout(const Duration(seconds: 10));
         if (dsCheckRes.statusCode == 200) {
-          final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$fbClean/commit/main');
-          final ndjsonLines = [
-            jsonEncode({'key': 'header', 'value': {'summary': 'Sync database backup from NYRO Tasks'}}),
-            jsonEncode({
-              'key': 'file',
-              'value': {
-                'content': b64,
-                'path': 'nyro.db',
-                'encoding': 'base64',
-              }
-            }),
-            jsonEncode({
-              'key': 'file',
-              'value': {
-                'content': b64,
-                'path': 'android_nyro.db',
-                'encoding': 'base64',
-              }
-            }),
-          ];
-          final commitPayload = '${ndjsonLines.join('\n')}\n';
-
-          final commitResponse = await http.post(
-            commitUrl,
-            headers: {
-              'Authorization': 'Bearer ${token.trim()}',
-              'Content-Type': 'application/x-ndjson',
-            },
-            body: utf8.encode(commitPayload),
-          ).timeout(const Duration(seconds: 45));
-
-          if (commitResponse.statusCode == 200) {
-            await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
-            return;
-          }
+          isDataset = true;
         }
       } catch (_) {}
-    }
 
-    // Check if target is a bucket
-    bool isBucket = false;
-    try {
-      final bucketCheckUrl = Uri.parse('https://huggingface.co/api/buckets/$cleanRepo');
-      final bCheckRes = await http.get(bucketCheckUrl, headers: {
-        'Authorization': 'Bearer ${token.trim()}',
-      }).timeout(const Duration(seconds: 10));
-      if (bCheckRes.statusCode == 200 || bCheckRes.statusCode == 302) {
-        isBucket = true;
+      if (isDataset) {
+        final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$cleanRepo/commit/main');
+        final ndjsonLines = [
+          jsonEncode({'key': 'header', 'value': {'summary': 'Sync database backup from NYRO Tasks'}}),
+          jsonEncode({
+            'key': 'file',
+            'value': {
+              'content': b64,
+              'path': 'nyro.db',
+              'encoding': 'base64',
+            }
+          }),
+          jsonEncode({
+            'key': 'file',
+            'value': {
+              'content': b64,
+              'path': 'android_nyro.db',
+              'encoding': 'base64',
+            }
+          }),
+        ];
+        final commitPayload = '${ndjsonLines.join('\n')}\n';
+
+        final commitResponse = await http.post(
+          commitUrl,
+          headers: {
+            'Authorization': 'Bearer ${token.trim()}',
+            'Content-Type': 'application/x-ndjson',
+          },
+          body: utf8.encode(commitPayload),
+        ).timeout(const Duration(seconds: 45));
+
+        if (commitResponse.statusCode == 200) {
+          await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
+          return;
+        } else {
+          throw Exception('Dataset commit failed (${commitResponse.statusCode}): ${commitResponse.body}');
+        }
       }
-    } catch (_) {}
 
-    final customBucket = await DatabaseService.instance.getHfBucket();
-    if (isBucket || (customBucket != null && customBucket.trim().isNotEmpty) || cleanRepo.contains('bucket')) {
-      throw Exception('Cloud sync bridge to bucket timed out. Please try again in a few moments.');
+      // Route 3: Check fallback dataset repo if configured
+      final fallbackRepo = await DatabaseService.instance.getHfRepo();
+      if (fallbackRepo != null && fallbackRepo.trim().isNotEmpty && fallbackRepo.trim() != cleanRepo) {
+        final fbClean = fallbackRepo.contains('/') ? fallbackRepo.trim() : fallbackRepo.trim();
+        try {
+          final dsCheckUrl = Uri.parse('https://huggingface.co/api/datasets/$fbClean');
+          final dsCheckRes = await http.get(dsCheckUrl, headers: {
+            'Authorization': 'Bearer ${token.trim()}',
+          }).timeout(const Duration(seconds: 10));
+          if (dsCheckRes.statusCode == 200) {
+            final commitUrl = Uri.parse('https://huggingface.co/api/datasets/$fbClean/commit/main');
+            final ndjsonLines = [
+              jsonEncode({'key': 'header', 'value': {'summary': 'Sync database backup from NYRO Tasks'}}),
+              jsonEncode({
+                'key': 'file',
+                'value': {
+                  'content': b64,
+                  'path': 'nyro.db',
+                  'encoding': 'base64',
+                }
+              }),
+              jsonEncode({
+                'key': 'file',
+                'value': {
+                  'content': b64,
+                  'path': 'android_nyro.db',
+                  'encoding': 'base64',
+                }
+              }),
+            ];
+            final commitPayload = '${ndjsonLines.join('\n')}\n';
+
+            final commitResponse = await http.post(
+              commitUrl,
+              headers: {
+                'Authorization': 'Bearer ${token.trim()}',
+                'Content-Type': 'application/x-ndjson',
+              },
+              body: utf8.encode(commitPayload),
+            ).timeout(const Duration(seconds: 45));
+
+            if (commitResponse.statusCode == 200) {
+              await DatabaseService.instance.setConfig('last_synced_at', DateTime.now().toIso8601String());
+              return;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Check if target is a bucket
+      bool isBucket = false;
+      try {
+        final bucketCheckUrl = Uri.parse('https://huggingface.co/api/buckets/$cleanRepo');
+        final bCheckRes = await http.get(bucketCheckUrl, headers: {
+          'Authorization': 'Bearer ${token.trim()}',
+        }).timeout(const Duration(seconds: 10));
+        if (bCheckRes.statusCode == 200 || bCheckRes.statusCode == 302) {
+          isBucket = true;
+        }
+      } catch (_) {}
+
+      final customBucket = await DatabaseService.instance.getHfBucket();
+      if (isBucket || (customBucket != null && customBucket.trim().isNotEmpty) || cleanRepo.contains('bucket')) {
+        throw Exception('Cloud sync bridge to bucket timed out. Please try again in a few moments.');
+      }
+
+      throw Exception(
+        'Cloud backup to "$cleanRepo" could not complete. Please verify your Hugging Face write token and bucket/dataset configuration.',
+      );
+    } finally {
+      try {
+        await File(sanitizedDbPath).delete();
+      } catch (_) {}
     }
-
-    throw Exception(
-      'Cloud backup to "$cleanRepo" could not complete. Please verify your Hugging Face write token and bucket/dataset configuration.',
-    );
   }
 
   // 3. Download and restore database directly from Hugging Face Bucket or Dataset
@@ -365,8 +373,17 @@ class CloudSyncService {
       throw Exception('Failed to download database from $targetBucket (HTTP ${response.statusCode})');
     }
 
+    // Security check: Validate SQLite format 3 header (first 16 bytes: "SQLite format 3\000")
+    if (response.bodyBytes.length < 100) {
+      throw Exception('Downloaded backup is too small to be a valid SQLite database.');
+    }
+    final headerStr = String.fromCharCodes(response.bodyBytes.sublist(0, 15));
+    if (headerStr != 'SQLite format 3') {
+      throw Exception('Downloaded file is not a valid SQLite database format.');
+    }
+
     final tempDir = await getTemporaryDirectory();
-    final tempPath = p.join(tempDir.path, 'temp_restore_nyro.db');
+    final tempPath = p.join(tempDir.path, 'temp_restore_nyro_${DateTime.now().millisecondsSinceEpoch}.db');
     await File(tempPath).writeAsBytes(response.bodyBytes, flush: true);
 
     await DatabaseService.instance.overwriteDatabase(tempPath);

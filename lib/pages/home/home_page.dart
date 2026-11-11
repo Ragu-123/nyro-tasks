@@ -18,6 +18,7 @@ import 'package:tasks/widgets/subject_filter_modal_sheet.dart';
 import 'package:tasks/widgets/notifications_history_sheet.dart';
 import 'package:tasks/widgets/add_mistake_modal_sheet.dart';
 import 'package:tasks/widgets/top_banner_notification.dart';
+import 'package:tasks/pages/bitchat/bitchat_main_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -1052,6 +1053,13 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _openBitchatPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const BitchatMainPage()),
+    );
+  }
+
   void _showSubjectFilterSheet() {
     showModalBottomSheet(
       context: context,
@@ -1159,6 +1167,29 @@ class _HomePageState extends State<HomePage> {
                     onTap: () {
                       Navigator.pop(context);
                       _showNotificationsHistorySheet();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.hub_outlined, color: googleBlue, size: 22),
+                    title: Row(
+                      children: [
+                        const Text('BitChat P2P Mesh', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: googleTextPrimary)),
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: googleGreen,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: const Text('Bluetooth & Relay network', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _openBitchatPage();
                     },
                   ),
                 ],

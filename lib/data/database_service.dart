@@ -198,6 +198,81 @@ class DatabaseService {
     ''');
 
     await db.execute('''
+      CREATE TABLE IF NOT EXISTS bitchat_messages (
+        id TEXT PRIMARY KEY,
+        sender TEXT NOT NULL,
+        sender_peer_id TEXT,
+        sender_nostr_pubkey TEXT,
+        recipient_nickname TEXT,
+        content TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        channel TEXT,
+        is_private INTEGER DEFAULT 0,
+        is_relay INTEGER DEFAULT 0,
+        delivery_status TEXT DEFAULT 'sent',
+        transport_type TEXT DEFAULT 'both'
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bitchat_peers (
+        peer_id TEXT PRIMARY KEY,
+        nickname TEXT NOT NULL,
+        noise_public_key TEXT,
+        signing_public_key TEXT,
+        nostr_pubkey TEXT,
+        rssi INTEGER,
+        is_direct INTEGER DEFAULT 1,
+        is_connected INTEGER DEFAULT 0,
+        last_seen INTEGER NOT NULL,
+        transport_type TEXT DEFAULT 'ble'
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bitchat_channels (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        geohash TEXT,
+        unread_count INTEGER DEFAULT 0,
+        participant_count INTEGER DEFAULT 0
+      )
+    ''');
+
+    // Performance composite indices for BitChat queries
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_bitchat_messages_channel_timestamp 
+      ON bitchat_messages(channel, timestamp ASC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_bitchat_messages_timestamp 
+      ON bitchat_messages(timestamp ASC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_bitchat_peers_last_seen 
+      ON bitchat_peers(last_seen DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_bitchat_channels_type 
+      ON bitchat_channels(type)
+    ''');
+
+    // Performance indices for high-frequency Tasks core queries
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_lectures_date_str 
+      ON lectures(date_str)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_daily_sessions_date_str 
+      ON daily_sessions(date_str)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_revisit_items_lecture_id 
+      ON revisit_items(lecture_id)
+    ''');
+
+    await db.execute('''
       INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time)
       VALUES (1, 1, '05:00', 1, 1, '21:30')
     ''');
@@ -993,6 +1068,16 @@ class DatabaseService {
     final savedUsername = await getHfUsername();
     final savedRepo = await getHfRepo();
     final savedBucket = await getHfBucket();
+
+    // Safeguard local BitChat cryptographic identity & private keys
+    final savedNoisePriv = await getConfig('bitchat_noise_priv');
+    final savedNostrPriv = await getConfig('bitchat_nostr_priv');
+    final savedNick = await getConfig('bitchat_nickname');
+    final savedPeerId = await getConfig('bitchat_peer_id');
+    final savedNostrPub = await getConfig('bitchat_nostr_pubkey');
+    final savedNpub = await getConfig('bitchat_nostr_npub');
+    final savedGeohash = await getConfig('bitchat_geohash');
+
     final localPath = await getDbPath();
 
     if (_db != null && _db!.isOpen) {
@@ -1010,6 +1095,37 @@ class DatabaseService {
     if (savedUsername != null && savedUsername.isNotEmpty) await setHfUsername(savedUsername);
     if (savedRepo != null && savedRepo.isNotEmpty) await setHfRepo(savedRepo);
     if (savedBucket != null && savedBucket.isNotEmpty) await setHfBucket(savedBucket);
+
+    if (savedNoisePriv != null && savedNoisePriv.isNotEmpty) await setConfig('bitchat_noise_priv', savedNoisePriv);
+    if (savedNostrPriv != null && savedNostrPriv.isNotEmpty) await setConfig('bitchat_nostr_priv', savedNostrPriv);
+    if (savedNick != null && savedNick.isNotEmpty) await setConfig('bitchat_nickname', savedNick);
+    if (savedPeerId != null && savedPeerId.isNotEmpty) await setConfig('bitchat_peer_id', savedPeerId);
+    if (savedNostrPub != null && savedNostrPub.isNotEmpty) await setConfig('bitchat_nostr_pubkey', savedNostrPub);
+    if (savedNpub != null && savedNpub.isNotEmpty) await setConfig('bitchat_nostr_npub', savedNpub);
+    if (savedGeohash != null && savedGeohash.isNotEmpty) await setConfig('bitchat_geohash', savedGeohash);
+  }
+
+  /// Exports a sanitized temporary copy of the database where private keys and auth tokens
+  /// are securely stripped before uploading to cloud backups.
+  Future<String> exportSanitizedDatabaseForCloudUpload() async {
+    final localPath = await getDbPath();
+    final tempDir = await getTemporaryDirectory();
+    final sanitizedPath = p.join(tempDir.path, 'sanitized_upload_nyro_${DateTime.now().millisecondsSinceEpoch}.db');
+
+    final localBytes = await File(localPath).readAsBytes();
+    await File(sanitizedPath).writeAsBytes(localBytes, flush: true);
+
+    // Open temporary copy and strip private keys and sensitive credentials
+    final tempDb = await openDatabase(sanitizedPath);
+    try {
+      await tempDb.delete('app_config', where: "key IN ('hf_token', 'bitchat_noise_priv', 'bitchat_nostr_priv')");
+      // Vacuum to ensure deleted data is not retained in SQLite free pages
+      await tempDb.execute('VACUUM');
+    } finally {
+      await tempDb.close();
+    }
+
+    return sanitizedPath;
   }
 
   Future<void> smartMergeDatabase(String cloudDbPath) async {
@@ -1103,5 +1219,50 @@ class DatabaseService {
     } finally {
       await cloudDb.close();
     }
+  }
+
+  // --- BitChat Persistence ---
+
+  Future<void> insertBitchatMessage(Map<String, dynamic> row) async {
+    final db = await database;
+    await db.insert('bitchat_messages', row, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getBitchatMessages({String? channel, int limit = 100}) async {
+    final db = await database;
+    if (channel != null) {
+      return await db.query(
+        'bitchat_messages',
+        where: 'channel = ?',
+        whereArgs: [channel],
+        orderBy: 'timestamp ASC',
+        limit: limit,
+      );
+    }
+    return await db.query(
+      'bitchat_messages',
+      orderBy: 'timestamp ASC',
+      limit: limit,
+    );
+  }
+
+  Future<void> upsertBitchatPeer(Map<String, dynamic> row) async {
+    final db = await database;
+    await db.insert('bitchat_peers', row, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getBitchatPeers() async {
+    final db = await database;
+    return await db.query('bitchat_peers', orderBy: 'last_seen DESC');
+  }
+
+  Future<void> upsertBitchatChannel(Map<String, dynamic> row) async {
+    final db = await database;
+    await db.insert('bitchat_channels', row, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getBitchatChannels() async {
+    final db = await database;
+    return await db.query('bitchat_channels');
   }
 }

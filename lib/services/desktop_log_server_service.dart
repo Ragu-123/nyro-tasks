@@ -19,9 +19,11 @@ class DesktopLogServerService {
 
   // 6-digit Authenticator Wi-Fi Shield PIN
   String _pairingPin = '123456';
-  final Set<String> _activeSessions = <String>{};
+  final Map<String, DateTime> _activeSessions = <String, DateTime>{};
   int _failedAttempts = 0;
   DateTime? _lockoutUntil;
+  final Map<String, int> _failedAttemptsByIp = <String, int>{};
+  final Map<String, DateTime> _lockoutByIp = <String, DateTime>{};
 
   // Stream controller to notify Flutter UI when a mistake is received from desktop
   final StreamController<Map<String, dynamic>> _mistakeStreamController =
@@ -41,6 +43,8 @@ class DesktopLogServerService {
     _activeSessions.clear();
     _failedAttempts = 0;
     _lockoutUntil = null;
+    _failedAttemptsByIp.clear();
+    _lockoutByIp.clear();
     return pin;
   }
 
@@ -51,35 +55,95 @@ class DesktopLogServerService {
     return _pairingPin;
   }
 
-  String? verifyPin(String inputPin) {
+  static bool _constantTimeEqual(String a, String b) {
+    if (a.length != b.length) return false;
+    int res = 0;
+    for (int i = 0; i < a.length; i++) {
+      res |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return res == 0;
+  }
+
+  String? verifyPin(String inputPin, {String? clientIp}) {
     final now = DateTime.now();
+
+    // Check IP lockout first if clientIp provided
+    if (clientIp != null && _lockoutByIp.containsKey(clientIp)) {
+      final ipLockout = _lockoutByIp[clientIp]!;
+      if (now.isBefore(ipLockout)) {
+        final waitSecs = ipLockout.difference(now).inSeconds;
+        throw Exception('Too many failed attempts from your IP. Locked for $waitSecs seconds.');
+      }
+    }
+
+    // Check global lockout
     if (_lockoutUntil != null && now.isBefore(_lockoutUntil!)) {
       final waitSecs = _lockoutUntil!.difference(now).inSeconds;
       throw Exception('Too many failed attempts. Locked for $waitSecs seconds.');
     }
 
     final cleanInput = inputPin.trim().replaceAll(RegExp(r'\s+'), '');
-    if (cleanInput == _pairingPin) {
+    if (_constantTimeEqual(cleanInput, _pairingPin)) {
       _failedAttempts = 0;
       _lockoutUntil = null;
-      // Generate secure 32-character hex session token
+      if (clientIp != null) {
+        _failedAttemptsByIp.remove(clientIp);
+        _lockoutByIp.remove(clientIp);
+      }
+      // Generate secure 32-byte (64-character hex) session token
       final rand = Random.secure();
-      final bytes = List<int>.generate(16, (_) => rand.nextInt(256));
+      final bytes = List<int>.generate(32, (_) => rand.nextInt(256));
       final token = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-      _activeSessions.add(token);
+      final expiry = now.add(const Duration(hours: 12));
+      _activeSessions[token] = expiry;
+      _pruneExpiredSessions();
       return token;
     } else {
       _failedAttempts++;
-      if (_failedAttempts >= 5) {
-        _lockoutUntil = now.add(const Duration(minutes: 1));
+      if (clientIp != null) {
+        _failedAttemptsByIp[clientIp] = (_failedAttemptsByIp[clientIp] ?? 0) + 1;
+      }
+
+      // Exponential lockout policy: 5 -> 1m, 6 -> 5m, 7 -> 15m, 8+ -> 60m
+      final attempts = max(_failedAttempts, clientIp != null ? (_failedAttemptsByIp[clientIp] ?? 0) : 0);
+      Duration? lockDuration;
+      if (attempts >= 8) {
+        lockDuration = const Duration(minutes: 60);
+      } else if (attempts == 7) {
+        lockDuration = const Duration(minutes: 15);
+      } else if (attempts == 6) {
+        lockDuration = const Duration(minutes: 5);
+      } else if (attempts >= 5) {
+        lockDuration = const Duration(minutes: 1);
+      }
+
+      if (lockDuration != null) {
+        final lockExpiry = now.add(lockDuration);
+        _lockoutUntil = lockExpiry;
+        if (clientIp != null) {
+          _lockoutByIp[clientIp] = lockExpiry;
+        }
       }
       return null;
     }
   }
 
+  void _pruneExpiredSessions() {
+    final now = DateTime.now();
+    _activeSessions.removeWhere((_, expiry) => now.isAfter(expiry));
+  }
+
   bool isSessionValid(String? token) {
     if (token == null || token.isEmpty) return false;
-    return _activeSessions.contains(token.trim());
+    final trimmed = token.trim();
+    if (!RegExp(r'^[a-fA-F0-9]{32,64}$').hasMatch(trimmed)) return false;
+    final expiry = _activeSessions[trimmed];
+    if (expiry == null) return false;
+    if (DateTime.now().isAfter(expiry)) {
+      _activeSessions.remove(trimmed);
+      return false;
+    }
+    return true;
   }
 
   Future<String?> getDeviceIp() async {
@@ -140,11 +204,39 @@ class DesktopLogServerService {
     debugPrint('Desktop Log Server stopped');
   }
 
+  Future<String?> _readLimitedBody(HttpRequest request, {int maxBytes = 10 * 1024 * 1024}) async {
+    final contentLength = request.headers.contentLength;
+    if (contentLength > maxBytes) {
+      request.response.statusCode = HttpStatus.requestEntityTooLarge;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'error': 'Payload Too Large', 'max_bytes': maxBytes}));
+      await request.response.close();
+      return null;
+    }
+
+    final builder = BytesBuilder(copy: false);
+    int totalBytes = 0;
+    await for (final chunk in request) {
+      totalBytes += chunk.length;
+      if (totalBytes > maxBytes) {
+        request.response.statusCode = HttpStatus.requestEntityTooLarge;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'error': 'Payload Too Large', 'max_bytes': maxBytes}));
+        await request.response.close();
+        return null;
+      }
+      builder.add(chunk);
+    }
+    return utf8.decode(builder.takeBytes());
+  }
+
   void _handleRequest(HttpRequest request) async {
     // Add CORS headers for desktop browser flexibility
     request.response.headers.add('Access-Control-Allow-Origin', '*');
     request.response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     request.response.headers.add('Access-Control-Allow-Headers', 'Origin, Content-Type, Accept, Authorization');
+    request.response.headers.add('X-Content-Type-Options', 'nosniff');
+    request.response.headers.add('X-Frame-Options', 'DENY');
 
     if (request.method == 'OPTIONS') {
       request.response.statusCode = HttpStatus.ok;
@@ -245,7 +337,8 @@ class DesktopLogServerService {
       final parts = path.split('/');
       final id = int.tryParse(parts[3]);
       if (id != null) {
-        final bodyStr = await utf8.decodeStream(request);
+        final bodyStr = await _readLimitedBody(request, maxBytes: 65536);
+        if (bodyStr == null) return;
         final Map<String, dynamic> data = jsonDecode(bodyStr);
         final isResolved = data['resolved'] as bool? ?? true;
         await DatabaseService.instance.toggleMistakeResolved(id, isResolved);
@@ -269,14 +362,48 @@ class DesktopLogServerService {
       }
     }
 
-    // 10. Serve Saved Screenshots
+    // 10. Serve Saved Screenshots with Path Traversal & Injection Defense
     if (request.method == 'GET' && path.startsWith('/api/images/')) {
       final imageName = path.substring('/api/images/'.length);
+      final safeImagePattern = RegExp(r'^[a-zA-Z0-9_\-]+\.(jpg|jpeg|png|webp)$', caseSensitive: false);
+      if (!safeImagePattern.hasMatch(imageName) || imageName.contains('..') || imageName.contains('/') || imageName.contains('\\')) {
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'error': 'Invalid image filename'}));
+        await request.response.close();
+        return;
+      }
+
       final docsDir = await getApplicationDocumentsDirectory();
       final imageFile = File('${docsDir.path}/$imageName');
+
+      try {
+        final canonicalDocs = docsDir.resolveSymbolicLinksSync();
+        final canonicalFile = imageFile.resolveSymbolicLinksSync();
+        if (!canonicalFile.startsWith(canonicalDocs)) {
+          request.response.statusCode = HttpStatus.forbidden;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'error': 'Access denied'}));
+          await request.response.close();
+          return;
+        }
+      } catch (_) {
+        // Symbolic link check failed or file does not exist
+      }
+
       if (await imageFile.exists()) {
-        request.response.headers.contentType = ContentType('image', 'jpeg');
+        final ext = imageName.split('.').last.toLowerCase();
+        final subType = (ext == 'png') ? 'png' : (ext == 'webp' ? 'webp' : 'jpeg');
+        request.response.headers.contentType = ContentType('image', subType);
+        request.response.headers.add('X-Content-Type-Options', 'nosniff');
+        request.response.headers.add('Cache-Control', 'private, max-age=86400');
         await imageFile.openRead().pipe(request.response);
+        return;
+      } else {
+        request.response.statusCode = HttpStatus.notFound;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'error': 'Image not found'}));
+        await request.response.close();
         return;
       }
     }
@@ -288,11 +415,13 @@ class DesktopLogServerService {
 
   Future<void> _handleAuthVerify(HttpRequest request) async {
     try {
-      final bodyStr = await utf8.decodeStream(request);
+      final bodyStr = await _readLimitedBody(request, maxBytes: 65536);
+      if (bodyStr == null) return;
       final Map<String, dynamic> data = jsonDecode(bodyStr);
       final inputPin = data['pin']?.toString() ?? '';
+      final clientIp = request.connectionInfo?.remoteAddress.address;
 
-      final token = verifyPin(inputPin);
+      final token = verifyPin(inputPin, clientIp: clientIp);
       if (token != null) {
         request.response.statusCode = HttpStatus.ok;
         request.response.headers.contentType = ContentType.json;
@@ -322,31 +451,48 @@ class DesktopLogServerService {
 
   Future<void> _handlePostMistake(HttpRequest request) async {
     try {
-      final bodyStr = await utf8.decodeStream(request);
+      final bodyStr = await _readLimitedBody(request, maxBytes: 10 * 1024 * 1024);
+      if (bodyStr == null) return;
       final Map<String, dynamic> data = jsonDecode(bodyStr);
 
-      final subject = data['subject'] as String? ?? 'General';
-      final topic = data['topic'] as String? ?? 'Test Question';
-      final questionText = data['question_text'] as String? ?? '';
-      final wrongAnswer = data['wrong_answer'] as String? ?? '';
-      final correctAnswer = data['correct_answer'] as String? ?? '';
-      final mistakeReason = data['mistake_reason'] as String? ?? '';
-      final keyTakeaway = data['key_takeaway'] as String? ?? '';
-      final quizTitle = data['quiz_title'] as String? ?? '';
-      final severity = (data['severity'] as String? ?? 'MEDIUM').toUpperCase();
+      String sanitizeField(dynamic val, int maxLen, {String fallback = ''}) {
+        if (val == null) return fallback;
+        final s = val
+            .toString()
+            .replaceAll(RegExp(r'[\u202A-\u202E\u2066-\u2069\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]'), '')
+            .replaceAll('<script', '&lt;script')
+            .replaceAll('</script', '&lt;/script')
+            .trim();
+        return s.length > maxLen ? s.substring(0, maxLen) : (s.isEmpty ? fallback : s);
+      }
+
+      final subject = sanitizeField(data['subject'], 100, fallback: 'General');
+      final topic = sanitizeField(data['topic'], 200, fallback: 'Test Question');
+      final questionText = sanitizeField(data['question_text'], 10000);
+      final wrongAnswer = sanitizeField(data['wrong_answer'], 2000);
+      final correctAnswer = sanitizeField(data['correct_answer'], 2000);
+      final mistakeReason = sanitizeField(data['mistake_reason'], 5000);
+      final keyTakeaway = sanitizeField(data['key_takeaway'], 5000);
+      final quizTitle = sanitizeField(data['quiz_title'], 200);
+
+      final rawSeverity = (data['severity'] as String? ?? 'MEDIUM').toUpperCase().trim();
+      final severity = const {'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'}.contains(rawSeverity) ? rawSeverity : 'MEDIUM';
+
       final imageBase64 = data['image_base64'] as String?;
 
       String? savedImagePath;
       String? savedFileName;
-      if (imageBase64 != null && imageBase64.isNotEmpty) {
+      if (imageBase64 != null && imageBase64.isNotEmpty && imageBase64.length <= 8 * 1024 * 1024) {
         try {
           final cleanBase64 = imageBase64.contains(',') ? imageBase64.split(',').last : imageBase64;
-          final bytes = base64Decode(cleanBase64);
-          final docsDir = await getApplicationDocumentsDirectory();
-          savedFileName = 'blunder_desktop_${DateTime.now().millisecondsSinceEpoch}.jpg';
-          final file = File('${docsDir.path}/$savedFileName');
-          await file.writeAsBytes(bytes);
-          savedImagePath = file.path;
+          final bytes = base64Decode(cleanBase64.replaceAll(RegExp(r'\s+'), ''));
+          if (bytes.length <= 6 * 1024 * 1024) {
+            final docsDir = await getApplicationDocumentsDirectory();
+            savedFileName = 'blunder_desktop_${DateTime.now().millisecondsSinceEpoch}_${Random.secure().nextInt(9999)}.jpg';
+            final file = File('${docsDir.path}/$savedFileName');
+            await file.writeAsBytes(bytes, flush: true);
+            savedImagePath = file.path;
+          }
         } catch (e) {
           debugPrint('Error saving blunder screenshot: $e');
         }
@@ -1301,12 +1447,15 @@ class DesktopLogServerService {
         const dateStr = (d && !isNaN(d.getTime())) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
         // Extract image url if stored in takeaway
+        const safeImgRegex = /^\/api\/images\/[a-zA-Z0-9_\-]+\.(jpg|jpeg|png|webp)$/i;
         let imgHtml = '';
         let cleanTakeaway = m.key_takeaway || '';
         const imgMatch = cleanTakeaway.match(/!\[Screenshot\]\((.*?)\)/);
         if (imgMatch) {
           const src = imgMatch[1];
-          imgHtml = `<img src="\${src}" class="screenshot-thumb" alt="Screenshot" onclick="window.open('\${src}', '_blank')">`;
+          if (safeImgRegex.test(src)) {
+            imgHtml = `<img src="\${src}" class="screenshot-thumb" alt="Screenshot" onclick="window.open('\${src}', '_blank')">`;
+          }
           cleanTakeaway = cleanTakeaway.replace(/!\[Screenshot\]\(.*?\)/g, '').trim();
         }
 
@@ -1316,7 +1465,9 @@ class DesktopLogServerService {
         let qImgHtml = '';
         if (qImgMatch) {
           const src = qImgMatch[1];
-          qImgHtml = `<img src="\${src}" class="screenshot-thumb" alt="Question Screenshot" onclick="window.open('\${src}', '_blank')">`;
+          if (safeImgRegex.test(src)) {
+            qImgHtml = `<img src="\${src}" class="screenshot-thumb" alt="Question Screenshot" onclick="window.open('\${src}', '_blank')">`;
+          }
           cleanQText = cleanQText.replace(/!\[Screenshot\]\(.*?\)/g, '').trim();
         }
 
