@@ -214,7 +214,7 @@ class _CloudSyncPageState extends State<CloudSyncPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: googleGrey)),
+            child: const Text('Cancel', style: TextStyle(color: googleTextSecondary)),
           ),
           ElevatedButton(
             onPressed: () async {
