@@ -119,29 +119,36 @@ class _QuizzesTabState extends State<QuizzesTab> {
 
   Future<void> _loadQuizzes() async {
     setState(() => _isLoading = true);
-    final type = _activeTypeIndex == 0 ? 'WEEKLY_QUIZ' : 'TEST_SERIES';
-    final items = await DatabaseService.instance.getQuizzesByType(type, subjectFilter: widget.selectedSubject);
+    try {
+      final type = _activeTypeIndex == 0 ? 'WEEKLY_QUIZ' : 'TEST_SERIES';
+      final items = await DatabaseService.instance.getQuizzesByType(type, subjectFilter: widget.selectedSubject);
 
-    // Concurrently fetch mistake counts for all quizzes via Future.wait
-    final countsList = await Future.wait(
-      items.map((q) async {
-        final title = (q['title'] ?? '').toString();
-        final id = q['id'] as int;
-        if (title.isEmpty) return MapEntry(id, 0);
-        final cnt = await DatabaseService.instance.getMistakeCountForQuiz(title);
-        return MapEntry(id, cnt);
-      }),
-    );
-    final counts = Map<int, int>.fromEntries(countsList);
+      // Concurrently fetch mistake counts for all quizzes via Future.wait
+      final countsList = await Future.wait(
+        items.map((q) async {
+          final title = (q['title'] ?? '').toString();
+          final id = q['id'] as int;
+          if (title.isEmpty) return MapEntry(id, 0);
+          final cnt = await DatabaseService.instance.getMistakeCountForQuiz(title);
+          return MapEntry(id, cnt);
+        }),
+      );
+      final counts = Map<int, int>.fromEntries(countsList);
 
-    final sortedItems = _applySorting(items);
+      final sortedItems = _applySorting(items);
 
-    if (mounted) {
-      setState(() {
-        _quizzes = sortedItems;
-        _trapsCounts = counts;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _quizzes = sortedItems;
+          _trapsCounts = counts;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading quizzes tab: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

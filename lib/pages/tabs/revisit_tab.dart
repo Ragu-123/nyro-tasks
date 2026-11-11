@@ -70,33 +70,40 @@ class _RevisitTabState extends State<RevisitTab> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final results = await Future.wait([
-      DatabaseService.instance.getDueBacklogCategorized(
-        date: DateTime.now(),
-        subject: widget.selectedSubject,
-      ),
-      DatabaseService.instance.getRetentionMatrixData(),
-      DatabaseService.instance.getMistakeRecordsFiltered(
-        subject: widget.selectedSubject,
-        status: _mistakeStatusFilter,
-        severity: _mistakeSeverityFilter,
-      ),
-      DatabaseService.instance.getAllDistinctSubjects(),
-    ]);
+    try {
+      final results = await Future.wait([
+        DatabaseService.instance.getDueBacklogCategorized(
+          date: DateTime.now(),
+          subject: widget.selectedSubject,
+        ),
+        DatabaseService.instance.getRetentionMatrixData(),
+        DatabaseService.instance.getMistakeRecordsFiltered(
+          subject: widget.selectedSubject,
+          status: _mistakeStatusFilter,
+          severity: _mistakeSeverityFilter,
+        ),
+        DatabaseService.instance.getAllDistinctSubjects(),
+      ]);
 
-    final rawSubjs = results[3] as List<String>;
-    final cleanSubjs = rawSubjs.where((s) => s.isNotEmpty && s != 'All Subjects').toList();
+      final rawSubjs = results[3] as List<String>;
+      final cleanSubjs = rawSubjs.where((s) => s.isNotEmpty && s != 'All Subjects').toList();
 
-    if (mounted) {
-      setState(() {
-        _dueBacklog = results[0] as Map<String, List<Map<String, dynamic>>>;
-        _matrixData = results[1] as List<Map<String, dynamic>>;
-        _mistakes = results[2] as List<Map<String, dynamic>>;
-        if (cleanSubjs.isNotEmpty) {
-          _availableSubjects = cleanSubjs;
-        }
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _dueBacklog = results[0] as Map<String, List<Map<String, dynamic>>>;
+          _matrixData = results[1] as List<Map<String, dynamic>>;
+          _mistakes = results[2] as List<Map<String, dynamic>>;
+          if (cleanSubjs.isNotEmpty) {
+            _availableSubjects = cleanSubjs;
+          }
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading revisit tab: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

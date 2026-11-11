@@ -9,14 +9,25 @@ import 'package:tasks/utils/theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize notifications and SQLite database
-  await NotificationService.instance.init();
-  await DatabaseService.instance.database;
+  // Defensive pre-launch initialization so app NEVER hangs on splash screen
+  try {
+    await DatabaseService.instance.database;
+  } catch (e) {
+    debugPrint('Database initialization error: $e');
+  }
 
-  LicenseRegistry.addLicense(() async* {
-    final license = await rootBundle.loadString('assets/google_fonts/OFL.txt');
-    yield LicenseEntryWithLineBreaks(['google_fonts'], license);
-  });
+  try {
+    await NotificationService.instance.init();
+  } catch (e) {
+    debugPrint('Notification service initialization error: $e');
+  }
+
+  try {
+    LicenseRegistry.addLicense(() async* {
+      final license = await rootBundle.loadString('assets/google_fonts/OFL.txt');
+      yield LicenseEntryWithLineBreaks(['google_fonts'], license);
+    });
+  } catch (_) {}
 
   runApp(const MyApp());
 }

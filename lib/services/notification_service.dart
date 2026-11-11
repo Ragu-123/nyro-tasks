@@ -57,7 +57,8 @@ class NotificationService {
       );
     }
 
-    await requestPermissions();
+    // Request permissions asynchronously without blocking app startup
+    requestPermissions().catchError((_) => false);
   }
 
   void _configureLocalTimeZone() {

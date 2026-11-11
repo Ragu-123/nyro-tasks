@@ -125,26 +125,30 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadGlobalData() async {
-    final results = await Future.wait([
-      DatabaseService.instance.getAllDistinctSubjects(),
-      DatabaseService.instance.getBadgeCounts(),
-      DatabaseService.instance.getDailyPacing(_currentDate),
-    ]);
+    try {
+      final results = await Future.wait([
+        DatabaseService.instance.getAllDistinctSubjects(),
+        DatabaseService.instance.getBadgeCounts(),
+        DatabaseService.instance.getDailyPacing(_currentDate),
+      ]);
 
-    final subjs = results[0] as List<String>;
-    final badges = results[1] as Map<String, int>;
-    final pacing = results[2] as Map<String, dynamic>;
+      final subjs = results[0] as List<String>;
+      final badges = results[1] as Map<String, int>;
+      final pacing = results[2] as Map<String, dynamic>;
 
-    final target = (pacing['target_hours'] as num?)?.toDouble() ?? 8.0;
-    final watched = (pacing['watched_hours'] as num?)?.toDouble() ?? 0.0;
-    final progress = target > 0 ? (watched / target).clamp(0.0, 1.0) : 0.0;
+      final target = (pacing['target_hours'] as num?)?.toDouble() ?? 8.0;
+      final watched = (pacing['watched_hours'] as num?)?.toDouble() ?? 0.0;
+      final progress = target > 0 ? (watched / target).clamp(0.0, 1.0) : 0.0;
 
-    if (mounted) {
-      setState(() {
-        _availableSubjects = subjs;
-        _badgeCounts = badges;
-        _todayProgress = progress;
-      });
+      if (mounted) {
+        setState(() {
+          _availableSubjects = subjs;
+          _badgeCounts = badges;
+          _todayProgress = progress;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading global data: $e');
     }
   }
 

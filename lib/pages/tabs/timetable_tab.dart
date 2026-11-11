@@ -65,25 +65,32 @@ class _TimetableTabState extends State<TimetableTab> {
 
   Future<void> _loadSubjectsAndCurriculum() async {
     setState(() => _isLoading = true);
-    final results = await Future.wait([
-      DatabaseService.instance.getAllDistinctSubjects(),
-      DatabaseService.instance.getCurriculumGroupedBySubject(
-        query: _searchController.text,
-        subjectFilter: _activeSubject,
-      ),
-    ]);
+    try {
+      final results = await Future.wait([
+        DatabaseService.instance.getAllDistinctSubjects(),
+        DatabaseService.instance.getCurriculumGroupedBySubject(
+          query: _searchController.text,
+          subjectFilter: _activeSubject,
+        ),
+      ]);
 
-    if (mounted) {
-      final subjs = results[0] as List<String>;
-      final items = results[1] as List<Map<String, dynamic>>;
-      setState(() {
-        _availableSubjects = subjs.isNotEmpty ? subjs : ['All Subjects'];
-        if (!_availableSubjects.contains(_activeSubject)) {
-          _activeSubject = 'All Subjects';
-        }
-        _lectures = items;
-        _isLoading = false;
-      });
+      if (mounted) {
+        final subjs = results[0] as List<String>;
+        final items = results[1] as List<Map<String, dynamic>>;
+        setState(() {
+          _availableSubjects = subjs.isNotEmpty ? subjs : ['All Subjects'];
+          if (!_availableSubjects.contains(_activeSubject)) {
+            _activeSubject = 'All Subjects';
+          }
+          _lectures = items;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading timetable tab: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

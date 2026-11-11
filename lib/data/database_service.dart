@@ -28,28 +28,25 @@ class DatabaseService {
     final db = await openDatabase(
       dbPath,
       version: 1,
-      onConfigure: (db) async {
-        // High-performance SQLite engine optimization:
-        // WAL mode enables concurrent readers and non-blocking background writes
-        await db.execute('PRAGMA journal_mode = WAL;');
-        await db.execute('PRAGMA synchronous = NORMAL;');
-        await db.execute('PRAGMA temp_store = MEMORY;');
-        await db.execute('PRAGMA mmap_size = 268435456;');
-        await db.execute('PRAGMA cache_size = -8000;');
-      },
       onCreate: (db, version) async {
         await _createAllTables(db);
       },
     );
 
-    // Defensively apply WAL pragmas for existing database connections
+    // Defensively apply WAL & performance pragmas without blocking or failing startup
     try {
-      await db.execute('PRAGMA journal_mode = WAL;');
+      await db.rawQuery('PRAGMA journal_mode = WAL;');
+    } catch (_) {}
+    try {
       await db.execute('PRAGMA synchronous = NORMAL;');
     } catch (_) {}
 
     // Ensure all tables and config keys exist on upgrade or existing db
-    await _createAllTables(db);
+    try {
+      await _createAllTables(db);
+    } catch (e) {
+      debugPrint('Database tables initialization warning: $e');
+    }
     return db;
   }
 
