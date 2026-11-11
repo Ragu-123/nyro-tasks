@@ -74,17 +74,19 @@ class _TodayTabState extends State<TodayTab> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final pacing = await DatabaseService.instance.getDailyPacing(widget.currentDate);
-    final lectures = await DatabaseService.instance.getLecturesForDate(widget.currentDate);
-    final revisits = await DatabaseService.instance.getDueRevisitsForDate(widget.currentDate);
-    final quizzes = await DatabaseService.instance.getScheduledQuizzesForDate(widget.currentDate);
+    final results = await Future.wait([
+      DatabaseService.instance.getDailyPacing(widget.currentDate),
+      DatabaseService.instance.getLecturesForDate(widget.currentDate),
+      DatabaseService.instance.getDueRevisitsForDate(widget.currentDate),
+      DatabaseService.instance.getScheduledQuizzesForDate(widget.currentDate),
+    ]);
 
     if (mounted) {
       setState(() {
-        _pacing = pacing;
-        _lectures = lectures;
-        _dueRevisits = revisits;
-        _todayQuizzes = quizzes;
+        _pacing = results[0] as Map<String, dynamic>;
+        _lectures = results[1] as List<Map<String, dynamic>>;
+        _dueRevisits = results[2] as List<Map<String, dynamic>>;
+        _todayQuizzes = results[3] as List<Map<String, dynamic>>;
         _isLoading = false;
       });
     }

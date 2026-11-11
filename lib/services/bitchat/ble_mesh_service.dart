@@ -264,7 +264,7 @@ class BleMeshService {
     if (packet.type == BitchatPacket.typeAnnounce) {
       _processAnnouncementPacket(senderPeerId, packet.payload);
     } else if (packet.type == BitchatPacket.typeMessage) {
-      _processPublicMessagePacket(senderPeerId, packet.payload);
+      _processPublicMessagePacket(senderPeerId, packet.payload, ttl: packet.ttl);
     } else if (packet.type == BitchatPacket.typeNoiseEncrypted) {
       _processDirectMessagePacket(senderPeerId, packet);
     }
@@ -321,12 +321,13 @@ class BleMeshService {
     _notifyPeersChanged();
   }
 
-  void _processPublicMessagePacket(String senderPeerId, Uint8List payload) {
+  void _processPublicMessagePacket(String senderPeerId, Uint8List payload, {int ttl = 7}) {
     final message = BitchatMessage.fromBinaryPayload(payload);
     if (message != null) {
       _messageController.add(message.copyWith(
         deliveryStatus: DeliveryStatus.delivered,
         transportType: TransportType.ble,
+        hopCount: (7 - ttl).clamp(1, 7),
       ));
       _touchPeer(senderPeerId, message.sender);
     }
@@ -347,6 +348,7 @@ class BleMeshService {
         channel: 'dm:$senderPeerId',
         deliveryStatus: DeliveryStatus.delivered,
         transportType: TransportType.ble,
+        hopCount: (7 - packet.ttl).clamp(1, 7),
       ));
       _touchPeer(senderPeerId, message.sender);
     }

@@ -1,5 +1,42 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
+
+class PeerColors {
+  static Color getColor(String peerIdOrPubkey) {
+    if (peerIdOrPubkey.isEmpty) return const Color(0xFF1A73E8);
+    int hash = 5381;
+    for (final b in utf8.encode(peerIdOrPubkey)) {
+      hash = (((hash << 5) + hash) + b) & 0x7FFFFFFFFFFFFFFF;
+    }
+    double hue = (hash % 360).toDouble();
+    if ((hue - 30.0).abs() < 18.0) {
+      hue = (hue + 43.2) % 360.0;
+    }
+    return HSVColor.fromAHSV(1.0, hue, 0.65, 0.60).toColor();
+  }
+}
+
+enum GeohashPrecisionLevel {
+  region(2, 'Region (~1250 km)'),
+  province(4, 'Province (~39 km)'),
+  city(5, 'City (~4.9 km)'),
+  neighborhood(6, 'Neighborhood (~1.2 km)'),
+  block(7, 'Block (~153 m)'),
+  building(8, 'Building (~38 m)');
+
+  final int precision;
+  final String label;
+
+  const GeohashPrecisionLevel(this.precision, this.label);
+
+  static GeohashPrecisionLevel fromPrecision(int p) {
+    return GeohashPrecisionLevel.values.firstWhere(
+      (e) => e.precision == p,
+      orElse: () => GeohashPrecisionLevel.city,
+    );
+  }
+}
 
 enum TransportType {
   ble,
@@ -168,6 +205,11 @@ class BitchatMessage {
   final bool isRelay;
   final DeliveryStatus deliveryStatus;
   final TransportType transportType;
+  final int hopCount;
+  final String? senderFingerprint;
+  final String? imageBase64;
+  final String? attachmentUrl;
+  final int? geohashPrecision;
 
   const BitchatMessage({
     required this.id,
@@ -182,6 +224,11 @@ class BitchatMessage {
     this.isRelay = false,
     this.deliveryStatus = DeliveryStatus.sent,
     this.transportType = TransportType.both,
+    this.hopCount = 0,
+    this.senderFingerprint,
+    this.imageBase64,
+    this.attachmentUrl,
+    this.geohashPrecision,
   });
 
   BitchatMessage copyWith({
@@ -197,6 +244,11 @@ class BitchatMessage {
     bool? isRelay,
     DeliveryStatus? deliveryStatus,
     TransportType? transportType,
+    int? hopCount,
+    String? senderFingerprint,
+    String? imageBase64,
+    String? attachmentUrl,
+    int? geohashPrecision,
   }) {
     return BitchatMessage(
       id: id ?? this.id,
@@ -211,6 +263,11 @@ class BitchatMessage {
       isRelay: isRelay ?? this.isRelay,
       deliveryStatus: deliveryStatus ?? this.deliveryStatus,
       transportType: transportType ?? this.transportType,
+      hopCount: hopCount ?? this.hopCount,
+      senderFingerprint: senderFingerprint ?? this.senderFingerprint,
+      imageBase64: imageBase64 ?? this.imageBase64,
+      attachmentUrl: attachmentUrl ?? this.attachmentUrl,
+      geohashPrecision: geohashPrecision ?? this.geohashPrecision,
     );
   }
 
@@ -228,6 +285,11 @@ class BitchatMessage {
       'is_relay': isRelay ? 1 : 0,
       'delivery_status': deliveryStatus.name,
       'transport_type': transportType.name,
+      'hop_count': hopCount,
+      'sender_fingerprint': senderFingerprint,
+      'image_base64': imageBase64,
+      'attachment_url': attachmentUrl,
+      'geohash_precision': geohashPrecision,
     };
   }
 
@@ -245,6 +307,11 @@ class BitchatMessage {
       isRelay: (map['is_relay'] as int? ?? 0) == 1,
       deliveryStatus: DeliveryStatus.fromString(map['delivery_status'] as String?),
       transportType: TransportType.fromString(map['transport_type'] as String?),
+      hopCount: (map['hop_count'] as num?)?.toInt() ?? 0,
+      senderFingerprint: map['sender_fingerprint'] as String?,
+      imageBase64: map['image_base64'] as String?,
+      attachmentUrl: map['attachment_url'] as String?,
+      geohashPrecision: (map['geohash_precision'] as num?)?.toInt(),
     );
   }
 

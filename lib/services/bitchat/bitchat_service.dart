@@ -28,6 +28,8 @@ class BitchatService {
   final ValueNotifier<List<BitchatMessage>> currentChannelMessagesNotifier =
       ValueNotifier<List<BitchatMessage>>([]);
 
+  final ValueNotifier<bool> isMasterPowerOnNotifier = ValueNotifier<bool>(true);
+  ValueNotifier<bool> get isOnlineNotifier => isMasterPowerOnNotifier;
   final ValueNotifier<String> currentNicknameNotifier = ValueNotifier<String>('NYRO_User');
   final ValueNotifier<String> currentPeerIdNotifier = ValueNotifier<String>('');
   final ValueNotifier<String> currentNpubNotifier = ValueNotifier<String>('');
@@ -51,6 +53,7 @@ class BitchatService {
   String _nostrPublicKeyHex = '';
   String _nostrNpub = '';
   String _currentGeohash = 'gate2027';
+  int _geohashPrecision = 6;
 
   bool _initialized = false;
   StreamSubscription<BitchatMessage>? _bleSub;
@@ -61,13 +64,26 @@ class BitchatService {
   String get peerId => _peerId;
   String get npub => _nostrNpub;
   String get currentGeohash => _currentGeohash;
+  int get geohashPrecision => _geohashPrecision;
+  bool get isMasterPowerOn => isMasterPowerOnNotifier.value;
   BitchatChannel? get activeChannel => activeChannelNotifier.value;
 
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
 
-    await BluetoothPermissionService.requestPermissions();
+    final enabledConfig = await _db.getConfig('bitchat_enabled');
+    final isEnabled = enabledConfig == null || enabledConfig == '1';
+    isMasterPowerOnNotifier.value = isEnabled;
+
+    final precisionConfig = await _db.getConfig('bitchat_geohash_precision');
+    if (precisionConfig != null) {
+      _geohashPrecision = int.tryParse(precisionConfig) ?? 6;
+    }
+
+    if (isEnabled) {
+      await BluetoothPermissionService.requestPermissions();
+    }
 
     await _loadOrGenerateIdentity();
     await _loadChannels();
@@ -84,9 +100,12 @@ class BitchatService {
       privateKeyHex: _nostrPrivateKeyHex,
       publicKeyHex: _nostrPublicKeyHex,
       nickname: _nickname,
+      autoConnect: isEnabled,
     );
 
-    bleMeshService.start();
+    if (isEnabled) {
+      bleMeshService.start();
+    }
 
     _bleSub = bleMeshService.messageStream.listen(_onIncomingMessage);
     _nostrSub = nostrRelayService.messageStream.listen(_onIncomingMessage);
@@ -260,6 +279,18 @@ class BitchatService {
   }
 
   Future<void> _onIncomingMessage(BitchatMessage message) async {
+    // Handle Delivery ACK and Read Receipt control packets
+    if (message.content.startsWith('ACK:')) {
+      final targetId = message.content.substring(4);
+      await updateDeliveryStatus(targetId, DeliveryStatus.delivered);
+      return;
+    }
+    if (message.content.startsWith('READ:')) {
+      final targetId = message.content.substring(5);
+      await updateDeliveryStatus(targetId, DeliveryStatus.read);
+      return;
+    }
+
     final chId = message.channel ?? 'mesh';
     _channelMessages.putIfAbsent(chId, () => []);
 
@@ -281,6 +312,11 @@ class BitchatService {
     }
 
     await _db.insertBitchatMessage(message.toMap());
+
+    // Send automatic delivery ACK back for private messages
+    if (message.isPrivate && message.senderPeerID != null && message.senderPeerID != _peerId) {
+      unawaited(sendDeliveryAck(message.id, message.senderPeerID!));
+    }
 
     final isActive = activeChannelNotifier.value?.id == chId;
     if (isActive) {
@@ -382,6 +418,105 @@ class BitchatService {
     channelsNotifier.value = List.unmodifiable(_channels);
     await _db.upsertBitchatChannel(dmChannel.toMap());
     await selectChannel(dmId);
+  }
+
+  Future<void> setMasterPower(bool enable) async {
+    isMasterPowerOnNotifier.value = enable;
+    await _db.setConfig('bitchat_enabled', enable ? '1' : '0');
+    if (enable) {
+      await BluetoothPermissionService.requestPermissions();
+      bleMeshService.start();
+      nostrRelayService.connectAll();
+    } else {
+      bleMeshService.stop();
+      nostrRelayService.disconnectAll();
+    }
+  }
+
+  Future<void> sendDeliveryAck(String messageId, String recipientPeerId) async {
+    final isBlePeer = bleMeshService.peers.any((p) => p.peerID == recipientPeerId && p.isConnected);
+    if (isBlePeer) {
+      await bleMeshService.sendDirectMessage(recipientPeerId, 'ACK:$messageId');
+    }
+  }
+
+  Future<void> markMessageAsRead(String messageId, String senderPeerId) async {
+    await updateDeliveryStatus(messageId, DeliveryStatus.read);
+    final isBlePeer = bleMeshService.peers.any((p) => p.peerID == senderPeerId && p.isConnected);
+    if (isBlePeer) {
+      await bleMeshService.sendDirectMessage(senderPeerId, 'READ:$messageId');
+    }
+  }
+
+  Future<void> updateDeliveryStatus(String messageId, DeliveryStatus status) async {
+    await _db.updateBitchatMessageDeliveryStatus(messageId, status.name);
+    for (final channelId in _channelMessages.keys) {
+      final list = _channelMessages[channelId]!;
+      final idx = list.indexWhere((m) => m.id == messageId);
+      if (idx != -1) {
+        final updated = list[idx].copyWith(deliveryStatus: status);
+        list[idx] = updated;
+        if (activeChannelNotifier.value?.id == channelId) {
+          currentChannelMessagesNotifier.value = List.unmodifiable(list);
+        }
+        break;
+      }
+    }
+  }
+
+  Future<void> setGeohashPrecision(int precision) async {
+    _geohashPrecision = precision.clamp(2, 12);
+    await _db.setConfig('bitchat_geohash_precision', _geohashPrecision.toString());
+  }
+
+  Future<void> sendImageMessage({
+    required String imageBase64,
+    String? caption,
+    String? channel,
+  }) async {
+    final currentChannel = activeChannelNotifier.value;
+    final targetChannel = channel ?? currentChannel?.id ?? 'mesh';
+    final displayText = (caption != null && caption.trim().isNotEmpty) ? caption.trim() : 'Shared an image';
+
+    final messageId = 'img_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}';
+    final now = DateTime.now();
+    final fingerprint = NostrCrypto.deriveFingerprint(_noisePublicKey);
+
+    final message = BitchatMessage(
+      id: messageId,
+      sender: _nickname,
+      senderPeerID: _peerId,
+      senderNostrPubkey: _nostrPublicKeyHex,
+      content: displayText,
+      timestamp: now,
+      channel: targetChannel,
+      isPrivate: targetChannel.startsWith('dm:'),
+      isRelay: !targetChannel.startsWith('mesh'),
+      deliveryStatus: DeliveryStatus.sent,
+      transportType: TransportType.both,
+      hopCount: 1,
+      senderFingerprint: fingerprint,
+      imageBase64: imageBase64,
+      geohashPrecision: _geohashPrecision,
+    );
+
+    await _onIncomingMessage(message);
+
+    if (currentChannel != null && (currentChannel.id == 'mesh' || currentChannel.type == ChannelType.broadcast)) {
+      await bleMeshService.broadcastMessage(displayText, channel: targetChannel);
+      await nostrRelayService.publishEphemeralGeohashMessage(
+        geohash: 'mesh',
+        content: displayText,
+        nickname: _nickname,
+      );
+    } else if (currentChannel != null && currentChannel.type == ChannelType.geohash && currentChannel.geohash != null) {
+      await bleMeshService.broadcastMessage(displayText, channel: targetChannel);
+      await nostrRelayService.publishEphemeralGeohashMessage(
+        geohash: currentChannel.geohash!,
+        content: displayText,
+        nickname: _nickname,
+      );
+    }
   }
 
   void toggleBleMesh(bool enable) {

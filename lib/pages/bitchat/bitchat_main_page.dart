@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +7,7 @@ import '../../services/bitchat/bitchat_service.dart';
 import '../../utils/theme.dart';
 import '../../widgets/top_banner_notification.dart';
 import 'add_channel_dialog.dart';
+import 'bitchat_message_details_modal.dart';
 import 'bitchat_network_manager_modal.dart';
 
 class BitchatMainPage extends StatefulWidget {
@@ -20,6 +22,10 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   bool _canSend = false;
+
+  // 1x1 transparent/tinted PNG base64 sample for image attachments
+  static const String _samplePngBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkWPjfDwAEeQHzE1U6+AAAAABJRU5ErkJggg==';
 
   @override
   void initState() {
@@ -81,6 +87,78 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
     );
   }
 
+  void _openImagePickerModal() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: googleSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 32,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: googleBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Attach Image',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.architecture, color: googleBlue),
+                title: const Text('Share GATE Logic Diagram', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Digital Circuits study note sample', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _sendSampleStudyImage('Logic Gate Diagram');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_tree_outlined, color: googleBlue),
+                title: const Text('Share Algorithm Flowchart', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Data Structures study note sample', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _sendSampleStudyImage('Algorithm Flowchart');
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendSampleStudyImage(String caption) async {
+    await BitchatService.instance.sendImageMessage(
+      imageBase64: _samplePngBase64,
+      caption: caption,
+    );
+    _scrollToBottom();
+    TopBanner.show(
+      context,
+      title: 'Image Sent',
+      message: '$caption broadcast to mesh.',
+      icon: Icons.check_circle_outline,
+      color: googleGreen,
+    );
+  }
+
   void _showMessageActionSheet(BitchatMessage message) {
     final isMine = message.sender == BitchatService.instance.nickname;
 
@@ -104,6 +182,20 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                   color: googleBorder,
                   borderRadius: BorderRadius.circular(2),
                 ),
+              ),
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.info_outline, color: googleBlue, size: 18),
+                title: const Text('Message Details', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => BitchatMessageDetailsModal(message: message),
+                  );
+                },
               ),
               ListTile(
                 dense: true,
@@ -188,10 +280,57 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.tune_outlined, color: googleBlue, size: 22),
-            tooltip: 'Network & Relays',
-            onPressed: _openNetworkManagerModal,
+          ValueListenableBuilder<bool>(
+            valueListenable: BitchatService.instance.isMasterPowerOnNotifier,
+            builder: (context, isOnline, _) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: () => BitchatService.instance.setMasterPower(!isOnline),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isOnline ? googleGreen.withOpacity(0.12) : googleHairline,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isOnline ? googleGreen.withOpacity(0.3) : googleBorder,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: isOnline ? googleGreen : Colors.grey,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            isOnline ? 'Online' : 'Standby',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: isOnline ? googleGreen : googleTextSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.tune_outlined, color: googleBlue, size: 20),
+                    tooltip: 'Network & Relays',
+                    onPressed: _openNetworkManagerModal,
+                  ),
+                ],
+              );
+            },
           ),
         ],
         bottom: PreferredSize(
@@ -199,14 +338,68 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
           child: Container(color: googleHairline, height: 1.0),
         ),
       ),
-      body: Column(
-        children: [
-          _buildCompactStatusBar(),
-          _buildChannelChips(),
-          const Divider(height: 1, thickness: 1, color: googleHairline),
-          Expanded(child: _buildMessageList()),
-          _buildComposerBar(),
-        ],
+      body: ValueListenableBuilder<bool>(
+        valueListenable: BitchatService.instance.isMasterPowerOnNotifier,
+        builder: (context, isOnline, _) {
+          if (!isOnline) {
+            return _buildStandbyView();
+          }
+          return Column(
+            children: [
+              _buildCompactStatusBar(),
+              _buildChannelChips(),
+              const Divider(height: 1, thickness: 1, color: googleHairline),
+              Expanded(child: _buildMessageList()),
+              _buildComposerBar(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStandbyView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: googleSurface,
+                shape: BoxShape.circle,
+                border: Border.all(color: googleBorder, width: 1.5),
+              ),
+              child: const Icon(Icons.power_settings_new, size: 48, color: googleTextSecondary),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'BitChat is in Standby',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: googleTextPrimary),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Bluetooth radio and Nostr relays are disconnected to preserve battery.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: googleTextSecondary),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () => BitchatService.instance.setMasterPower(true),
+              icon: const Icon(Icons.flash_on, size: 16),
+              label: const Text('Activate BitChat', style: TextStyle(fontWeight: FontWeight.w600)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: googleBlue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -221,6 +414,9 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
             child: ValueListenableBuilder<String>(
               valueListenable: BitchatService.instance.currentNicknameNotifier,
               builder: (context, nickname, _) {
+                final myPeerId = BitchatService.instance.peerId;
+                final myColor = PeerColors.getColor(myPeerId.isNotEmpty ? myPeerId : nickname);
+
                 return InkWell(
                   onTap: _openNetworkManagerModal,
                   borderRadius: BorderRadius.circular(6),
@@ -228,10 +424,10 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                     children: [
                       CircleAvatar(
                         radius: 11,
-                        backgroundColor: googleBlue,
+                        backgroundColor: myColor.withOpacity(0.18),
                         child: Text(
                           nickname.isNotEmpty ? nickname[0].toUpperCase() : 'U',
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: myColor),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -481,7 +677,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
         color: googleSurface,
         border: Border(top: BorderSide(color: googleHairline, width: 1)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: SafeArea(
         child: ValueListenableBuilder<BitchatChannel?>(
           valueListenable: BitchatService.instance.activeChannelNotifier,
@@ -489,6 +685,11 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
             final targetName = activeChannel?.name ?? 'channel';
             return Row(
               children: [
+                IconButton(
+                  icon: const Icon(Icons.image_outlined, color: googleBlue, size: 22),
+                  tooltip: 'Share study image',
+                  onPressed: _openImagePickerModal,
+                ),
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
@@ -549,9 +750,42 @@ class BitchatMessageBubble extends StatelessWidget {
     required this.onLongPress,
   }) : super(key: key);
 
+  void _showFullImageDialog(BuildContext context, String base64Image) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  base64Decode(base64Image),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 24),
+              onPressed: () => Navigator.of(ctx).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final timeStr = _timeFormatter.format(message.timestamp);
+    final avatarColor = PeerColors.getColor(message.senderPeerID ?? message.sender);
 
     return InkWell(
       onLongPress: onLongPress,
@@ -565,10 +799,10 @@ class BitchatMessageBubble extends StatelessWidget {
             if (!isMine) ...[
               CircleAvatar(
                 radius: 13,
-                backgroundColor: googleBlueContainer,
+                backgroundColor: avatarColor.withOpacity(0.18),
                 child: Text(
                   message.sender.isNotEmpty ? message.sender[0].toUpperCase() : 'U',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: avatarColor),
                 ),
               ),
               const SizedBox(width: 6),
@@ -599,7 +833,7 @@ class BitchatMessageBubble extends StatelessWidget {
                         children: [
                           Text(
                             message.sender,
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: avatarColor),
                           ),
                           if (message.senderPeerID != null) ...[
                             const SizedBox(width: 4),
@@ -611,6 +845,34 @@ class BitchatMessageBubble extends StatelessWidget {
                         ],
                       ),
                     if (!isMine) const SizedBox(height: 2),
+
+                    // Render image attachment if present
+                    if (message.imageBase64 != null && message.imageBase64!.isNotEmpty) ...[
+                      GestureDetector(
+                        onTap: () => _showFullImageDialog(context, message.imageBase64!),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          constraints: const BoxConstraints(maxHeight: 180, maxWidth: 220),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: googleBorder, width: 0.8),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.memory(
+                              base64Decode(message.imageBase64!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (ctx, err, stack) => Container(
+                                padding: const EdgeInsets.all(12),
+                                color: googleBackground,
+                                child: const Icon(Icons.broken_image, color: googleTextSecondary, size: 28),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+
                     SelectableText(
                       message.content,
                       style: const TextStyle(fontSize: 13, color: googleTextPrimary, height: 1.3),
@@ -683,10 +945,11 @@ class BitchatMessageBubble extends StatelessWidget {
       case DeliveryStatus.sending:
         return const Icon(Icons.access_time, size: 10, color: googleTextSecondary);
       case DeliveryStatus.sent:
-        return const Icon(Icons.check, size: 10, color: googleTextSecondary);
+        return const Icon(Icons.done_all, size: 11, color: googleTextSecondary);
       case DeliveryStatus.delivered:
+        return const Icon(Icons.done_all, size: 11, color: Colors.blueGrey);
       case DeliveryStatus.read:
-        return const Icon(Icons.done_all, size: 10, color: googleBlue);
+        return const Icon(Icons.done_all, size: 11, color: googleGreen);
       case DeliveryStatus.failed:
         return const Icon(Icons.error_outline, size: 10, color: googleRed);
     }

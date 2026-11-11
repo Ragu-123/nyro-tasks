@@ -52,16 +52,20 @@ class _QuizzesTabState extends State<QuizzesTab> {
     }
   }
 
+  static final DateFormat _quizDateFormat1 = DateFormat('dd MMM yyyy');
+  static final DateFormat _quizDateFormat2 = DateFormat('d MMM yyyy');
+
   DateTime _parseQuizDate(String? d) {
     if (d == null || d.trim().isEmpty) return DateTime(2099);
+    final clean = d.trim();
     try {
-      return DateFormat('dd MMM yyyy').parse(d.trim());
+      return _quizDateFormat1.parse(clean);
     } catch (_) {
       try {
-        return DateFormat('d MMM yyyy').parse(d.trim());
+        return _quizDateFormat2.parse(clean);
       } catch (_) {
         try {
-          return DateTime.parse(d.trim());
+          return DateTime.parse(clean);
         } catch (_) {
           return DateTime(2099);
         }
@@ -118,13 +122,17 @@ class _QuizzesTabState extends State<QuizzesTab> {
     final type = _activeTypeIndex == 0 ? 'WEEKLY_QUIZ' : 'TEST_SERIES';
     final items = await DatabaseService.instance.getQuizzesByType(type, subjectFilter: widget.selectedSubject);
 
-    final counts = <int, int>{};
-    for (var q in items) {
-      final title = q['title'] ?? '';
-      final id = q['id'] as int;
-      final cnt = await DatabaseService.instance.getMistakeCountForQuiz(title);
-      counts[id] = cnt;
-    }
+    // Concurrently fetch mistake counts for all quizzes via Future.wait
+    final countsList = await Future.wait(
+      items.map((q) async {
+        final title = (q['title'] ?? '').toString();
+        final id = q['id'] as int;
+        if (title.isEmpty) return MapEntry(id, 0);
+        final cnt = await DatabaseService.instance.getMistakeCountForQuiz(title);
+        return MapEntry(id, cnt);
+      }),
+    );
+    final counts = Map<int, int>.fromEntries(countsList);
 
     final sortedItems = _applySorting(items);
 

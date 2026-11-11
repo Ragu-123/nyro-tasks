@@ -81,6 +81,7 @@ class NostrRelayService {
     required String publicKeyHex,
     required String nickname,
     List<String>? customRelays,
+    bool autoConnect = true,
   }) {
     _devicePrivateKeyHex = privateKeyHex;
     _devicePublicKeyHex = publicKeyHex;
@@ -107,7 +108,9 @@ class NostrRelayService {
       _relayHealth[url] = RelayHealth(url: url);
     }
     _updateStatusNotifier();
-    connectAll();
+    if (autoConnect) {
+      connectAll();
+    }
 
     _presenceTimer?.cancel();
     _presenceTimer = Timer.periodic(const Duration(seconds: 60), (_) {

@@ -128,7 +128,7 @@ class AppUpdateProgress {
 }
 
 class AppUpdateService {
-  static const String currentVersion = '1.0.8';
+  static const String currentVersion = '1.0.9';
   static const String defaultGithubRepo = 'Ragu-123/nyro-tasks';
   static const MethodChannel _nativeChannel = MethodChannel('io.github.thelazyindian.tasks/native');
 

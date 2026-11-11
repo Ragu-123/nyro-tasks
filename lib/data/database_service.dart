@@ -28,10 +28,25 @@ class DatabaseService {
     final db = await openDatabase(
       dbPath,
       version: 1,
+      onConfigure: (db) async {
+        // High-performance SQLite engine optimization:
+        // WAL mode enables concurrent readers and non-blocking background writes
+        await db.execute('PRAGMA journal_mode = WAL;');
+        await db.execute('PRAGMA synchronous = NORMAL;');
+        await db.execute('PRAGMA temp_store = MEMORY;');
+        await db.execute('PRAGMA mmap_size = 268435456;');
+        await db.execute('PRAGMA cache_size = -8000;');
+      },
       onCreate: (db, version) async {
         await _createAllTables(db);
       },
     );
+
+    // Defensively apply WAL pragmas for existing database connections
+    try {
+      await db.execute('PRAGMA journal_mode = WAL;');
+      await db.execute('PRAGMA synchronous = NORMAL;');
+    } catch (_) {}
 
     // Ensure all tables and config keys exist on upgrade or existing db
     await _createAllTables(db);
@@ -210,7 +225,12 @@ class DatabaseService {
         is_private INTEGER DEFAULT 0,
         is_relay INTEGER DEFAULT 0,
         delivery_status TEXT DEFAULT 'sent',
-        transport_type TEXT DEFAULT 'both'
+        transport_type TEXT DEFAULT 'both',
+        hop_count INTEGER DEFAULT 0,
+        sender_fingerprint TEXT,
+        image_base64 TEXT,
+        attachment_url TEXT,
+        geohash_precision INTEGER
       )
     ''');
 
@@ -292,6 +312,26 @@ class DatabaseService {
       }
       if (!colNames.contains('resolved_at')) {
         await db.execute('ALTER TABLE mistake_records ADD COLUMN resolved_at DATETIME');
+      }
+    } catch (_) {}
+
+    try {
+      final bCols = await db.rawQuery('PRAGMA table_info(bitchat_messages)');
+      final bColNames = bCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
+      if (!bColNames.contains('hop_count')) {
+        await db.execute('ALTER TABLE bitchat_messages ADD COLUMN hop_count INTEGER DEFAULT 0');
+      }
+      if (!bColNames.contains('sender_fingerprint')) {
+        await db.execute('ALTER TABLE bitchat_messages ADD COLUMN sender_fingerprint TEXT');
+      }
+      if (!bColNames.contains('image_base64')) {
+        await db.execute('ALTER TABLE bitchat_messages ADD COLUMN image_base64 TEXT');
+      }
+      if (!bColNames.contains('attachment_url')) {
+        await db.execute('ALTER TABLE bitchat_messages ADD COLUMN attachment_url TEXT');
+      }
+      if (!bColNames.contains('geohash_precision')) {
+        await db.execute('ALTER TABLE bitchat_messages ADD COLUMN geohash_precision INTEGER');
       }
     } catch (_) {}
   }
@@ -1264,5 +1304,15 @@ class DatabaseService {
   Future<List<Map<String, dynamic>>> getBitchatChannels() async {
     final db = await database;
     return await db.query('bitchat_channels');
+  }
+
+  Future<void> updateBitchatMessageDeliveryStatus(String messageId, String status) async {
+    final db = await database;
+    await db.update(
+      'bitchat_messages',
+      {'delivery_status': status},
+      where: 'id = ?',
+      whereArgs: [messageId],
+    );
   }
 }

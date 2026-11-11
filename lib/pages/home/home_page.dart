@@ -19,6 +19,7 @@ import 'package:tasks/widgets/notifications_history_sheet.dart';
 import 'package:tasks/widgets/add_mistake_modal_sheet.dart';
 import 'package:tasks/widgets/top_banner_notification.dart';
 import 'package:tasks/pages/bitchat/bitchat_main_page.dart';
+import 'package:tasks/services/bitchat/bitchat_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -124,9 +125,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadGlobalData() async {
-    final subjs = await DatabaseService.instance.getAllDistinctSubjects();
-    final badges = await DatabaseService.instance.getBadgeCounts();
-    final pacing = await DatabaseService.instance.getDailyPacing(_currentDate);
+    final results = await Future.wait([
+      DatabaseService.instance.getAllDistinctSubjects(),
+      DatabaseService.instance.getBadgeCounts(),
+      DatabaseService.instance.getDailyPacing(_currentDate),
+    ]);
+
+    final subjs = results[0] as List<String>;
+    final badges = results[1] as Map<String, int>;
+    final pacing = results[2] as Map<String, dynamic>;
 
     final target = (pacing['target_hours'] as num?)?.toDouble() ?? 8.0;
     final watched = (pacing['watched_hours'] as num?)?.toDouble() ?? 0.0;
@@ -1169,27 +1176,39 @@ class _HomePageState extends State<HomePage> {
                       _showNotificationsHistorySheet();
                     },
                   ),
-                  ListTile(
-                    leading: const Icon(Icons.hub_outlined, color: googleBlue, size: 22),
-                    title: Row(
-                      children: [
-                        const Text('BitChat P2P Mesh', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: googleTextPrimary)),
-                        const SizedBox(width: 8),
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: googleGreen,
-                            shape: BoxShape.circle,
-                          ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: BitchatService.instance.isMasterPowerOnNotifier,
+                    builder: (context, isOnline, _) {
+                      return ListTile(
+                        leading: Icon(
+                          Icons.hub_outlined,
+                          color: isOnline ? googleBlue : googleTextSecondary,
+                          size: 22,
                         ),
-                      ],
-                    ),
-                    subtitle: const Text('Bluetooth & Relay network', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _openBitchatPage();
+                        title: Row(
+                          children: [
+                            const Text('BitChat P2P Mesh', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: googleTextPrimary)),
+                            const SizedBox(width: 8),
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isOnline ? googleGreen : Colors.grey,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          isOnline ? 'Bluetooth & Relay network (Online)' : 'Standby (Disconnected)',
+                          style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openBitchatPage();
+                        },
+                      );
                     },
                   ),
                 ],
@@ -1322,6 +1341,7 @@ class _HomePageState extends State<HomePage> {
         index: _currentNavIndex,
         children: [
           TodayTab(
+            key: const ValueKey('home_tab_today'),
             currentDate: _currentDate,
             onDataChanged: _loadGlobalData,
             scrollController: _todayScrollController,
@@ -1334,16 +1354,19 @@ class _HomePageState extends State<HomePage> {
             onOpenCloudSync: _openCloudSyncPage,
           ),
           TimetableTab(
+            key: const ValueKey('home_tab_timetable'),
             onDataChanged: _loadGlobalData,
             selectedSubject: _selectedSubject,
             availableSubjects: _availableSubjects,
           ),
           RevisitTab(
+            key: const ValueKey('home_tab_revisit'),
             onDataChanged: _loadGlobalData,
             selectedSubject: _selectedSubject,
             onOpenFilter: _showSubjectFilterSheet,
           ),
           QuizzesTab(
+            key: const ValueKey('home_tab_quizzes'),
             onDataChanged: _loadGlobalData,
             selectedSubject: _selectedSubject,
             onOpenFilter: _showSubjectFilterSheet,
