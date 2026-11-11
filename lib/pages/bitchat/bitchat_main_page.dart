@@ -40,9 +40,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
   void _onTextChanged() {
     final canSend = _textController.text.trim().isNotEmpty;
     if (canSend != _canSend) {
-      setState(() {
-        _canSend = canSend;
-      });
+      setState(() => _canSend = canSend);
     }
   }
 
@@ -51,7 +49,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
+          duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
       }
@@ -94,29 +92,30 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 36,
+                width: 32,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
+                margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
                   color: googleBorder,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.copy, color: googleBlue, size: 20),
-                title: const Text('Copy Message Text', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                dense: true,
+                leading: const Icon(Icons.copy, color: googleBlue, size: 18),
+                title: const Text('Copy Text', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: message.content));
                   Navigator.of(ctx).pop();
                   TopBanner.show(
                     context,
                     title: 'Copied',
-                    message: 'Message copied to clipboard.',
+                    message: 'Message copied.',
                     icon: Icons.check_circle_outline,
                     color: googleGreen,
                   );
@@ -124,16 +123,17 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
               ),
               if (message.senderPeerID != null && message.senderPeerID!.isNotEmpty)
                 ListTile(
-                  leading: const Icon(Icons.fingerprint, color: googleBlue, size: 20),
-                  title: const Text('Copy Sender Peer ID', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text(message.senderPeerID!, style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
+                  dense: true,
+                  leading: const Icon(Icons.fingerprint, color: googleBlue, size: 18),
+                  title: const Text('Copy Peer ID', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  subtitle: Text(message.senderPeerID!, style: const TextStyle(fontSize: 10, color: googleTextSecondary)),
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: message.senderPeerID!));
                     Navigator.of(ctx).pop();
                     TopBanner.show(
                       context,
                       title: 'Copied',
-                      message: 'Sender ID copied to clipboard.',
+                      message: 'Peer ID copied.',
                       icon: Icons.check_circle_outline,
                       color: googleGreen,
                     );
@@ -141,8 +141,9 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                 ),
               if (!isMine && message.senderPeerID != null)
                 ListTile(
-                  leading: const Icon(Icons.chat_bubble_outline, color: googleBlue, size: 20),
-                  title: Text('Direct Message ${message.sender}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  dense: true,
+                  leading: const Icon(Icons.chat_bubble_outline, color: googleBlue, size: 18),
+                  title: Text('Message ${message.sender}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                   onTap: () {
                     Navigator.of(ctx).pop();
                     final peer = BitchatPeer(
@@ -153,15 +154,6 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                     BitchatService.instance.openDirectMessageWithPeer(peer);
                   },
                 ),
-              ListTile(
-                leading: const Icon(Icons.info_outline, color: googleTextSecondary, size: 20),
-                title: const Text('Message Info', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                subtitle: Text(
-                  'Transport: ${message.transportType.displayName} | Status: ${message.deliveryStatus.displayText}',
-                  style: const TextStyle(fontSize: 11, color: googleTextSecondary),
-                ),
-                onTap: () => Navigator.of(ctx).pop(),
-              ),
             ],
           ),
         ),
@@ -173,13 +165,45 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: googleBackground,
-      appBar: _buildAppBar(),
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: googleSurface,
+        titleSpacing: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: googleTextPrimary, size: 22),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Row(
+          children: const [
+            Icon(Icons.hub_outlined, color: googleBlue, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'BitChat',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: googleTextPrimary,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.tune_outlined, color: googleBlue, size: 22),
+            tooltip: 'Network & Relays',
+            onPressed: _openNetworkManagerModal,
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1.0),
+          child: Container(color: googleHairline, height: 1.0),
+        ),
+      ),
       body: Column(
         children: [
-          _buildTopStatusBar(),
-          _buildChannelSwitcher(),
+          _buildCompactStatusBar(),
+          _buildChannelChips(),
           const Divider(height: 1, thickness: 1, color: googleHairline),
-          _buildActiveChannelHeader(),
           Expanded(child: _buildMessageList()),
           _buildComposerBar(),
         ],
@@ -187,111 +211,34 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
     );
   }
 
-  // --- App Bar ---
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      elevation: 0,
-      backgroundColor: googleSurface,
-      titleSpacing: 0,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back, color: googleTextPrimary, size: 22),
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: googleBlueContainer.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.hub_outlined, color: googleBlue, size: 18),
-          ),
-          const SizedBox(width: 10),
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'BitChat P2P Mesh',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: googleTextPrimary,
-                ),
-              ),
-              Text(
-                'Off-grid Bluetooth & Nostr Relays',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: googleTextSecondary,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.tune_outlined, color: googleBlue, size: 22),
-          tooltip: 'Mesh & Relay Manager',
-          onPressed: _openNetworkManagerModal,
-        ),
-      ],
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1.0),
-        child: Container(color: googleHairline, height: 1.0),
-      ),
-    );
-  }
-
-  // --- Top Status Bar ---
-  Widget _buildTopStatusBar() {
+  Widget _buildCompactStatusBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: const BoxDecoration(
-        color: googleSurface,
-        border: Border(bottom: BorderSide(color: googleHairline, width: 1)),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      color: googleSurface,
       child: Row(
         children: [
-          // Active Identity Pill
           Expanded(
             child: ValueListenableBuilder<String>(
               valueListenable: BitchatService.instance.currentNicknameNotifier,
               builder: (context, nickname, _) {
-                final peerId = BitchatService.instance.peerId;
-                final shortId = peerId.length >= 8 ? peerId.substring(0, 8) : peerId;
-
                 return InkWell(
                   onTap: _openNetworkManagerModal,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                   child: Row(
                     children: [
                       CircleAvatar(
-                        radius: 12,
+                        radius: 11,
                         backgroundColor: googleBlue,
                         child: Text(
                           nickname.isNotEmpty ? nickname[0].toUpperCase() : 'U',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              nickname,
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              shortId.isNotEmpty ? 'ID: $shortId' : 'Mesh Ready',
-                              style: const TextStyle(fontSize: 10, color: googleTextSecondary, fontFamily: 'monospace'),
-                            ),
-                          ],
-                        ),
+                      Text(
+                        nickname,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -299,8 +246,6 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
               },
             ),
           ),
-
-          // BLE Mesh Status Pill
           ValueListenableBuilder<bool>(
             valueListenable: BitchatService.instance.bleMeshActiveNotifier,
             builder: (context, isMeshActive, _) {
@@ -311,7 +256,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                     onTap: _openNetworkManagerModal,
                     borderRadius: BorderRadius.circular(6),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
                         color: isMeshActive ? googleBlueContainer.withOpacity(0.3) : googleBackground,
                         borderRadius: BorderRadius.circular(6),
@@ -325,12 +270,12 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                         children: [
                           Icon(
                             isMeshActive ? Icons.bluetooth : Icons.bluetooth_disabled,
-                            size: 13,
+                            size: 12,
                             color: isMeshActive ? googleBlue : googleTextSecondary,
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            isMeshActive ? '${peers.length} Peers' : 'Off',
+                            isMeshActive ? '${peers.length} peers' : 'Off',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -345,9 +290,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
               );
             },
           ),
-          const SizedBox(width: 8),
-
-          // Nostr Relay Status Pill
+          const SizedBox(width: 6),
           ValueListenableBuilder<Map<String, bool>>(
             valueListenable: BitchatService.instance.relayStatusNotifier,
             builder: (context, relayStatus, _) {
@@ -358,7 +301,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                 onTap: _openNetworkManagerModal,
                 borderRadius: BorderRadius.circular(6),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(
                     color: connected > 0 ? googleGreen.withOpacity(0.12) : googleAmber.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(6),
@@ -371,16 +314,16 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        width: 6,
-                        height: 6,
+                        width: 5,
+                        height: 5,
                         decoration: BoxDecoration(
                           color: connected > 0 ? googleGreen : googleAmber,
                           shape: BoxShape.circle,
                         ),
                       ),
-                      const SizedBox(width: 5),
+                      const SizedBox(width: 4),
                       Text(
-                        '$connected/$total Relays',
+                        '$connected/$total',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -398,10 +341,9 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
     );
   }
 
-  // --- Channel / Geohash Switcher ---
-  Widget _buildChannelSwitcher() {
+  Widget _buildChannelChips() {
     return Container(
-      height: 48,
+      height: 44,
       color: googleSurface,
       child: ValueListenableBuilder<List<BitchatChannel>>(
         valueListenable: BitchatService.instance.channelsNotifier,
@@ -411,18 +353,18 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
             builder: (context, activeChannel, _) {
               return ListView.separated(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 itemCount: channels.length + 1,
-                separatorBuilder: (context, index) => const SizedBox(width: 8),
+                separatorBuilder: (context, index) => const SizedBox(width: 6),
                 itemBuilder: (context, index) {
                   if (index == channels.length) {
                     return ActionChip(
-                      key: const ValueKey('add_channel_action_chip'),
-                      avatar: const Icon(Icons.add, size: 14, color: googleBlue),
-                      label: const Text('Add Channel', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: googleBlue)),
+                      key: const ValueKey('add_channel_chip'),
+                      avatar: const Icon(Icons.add, size: 13, color: googleBlue),
+                      label: const Text('Add', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleBlue)),
                       backgroundColor: googleBackground,
                       side: const BorderSide(color: googleBorder, width: 0.8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       onPressed: _openAddChannelDialog,
                     );
                   }
@@ -445,7 +387,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                     key: ValueKey('channel_chip_${channel.id}'),
                     avatar: Icon(
                       iconData,
-                      size: 14,
+                      size: 13,
                       color: isSelected ? googleBlue : googleTextSecondary,
                     ),
                     label: Row(
@@ -454,19 +396,16 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                         Text(
                           channel.name,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                             color: isSelected ? googleBlue : googleTextPrimary,
                           ),
                         ),
                         if (channel.unreadCount > 0) ...[
-                          const SizedBox(width: 5),
+                          const SizedBox(width: 4),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                            decoration: const BoxDecoration(
-                              color: googleBlue,
-                              shape: BoxShape.circle,
-                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                            decoration: const BoxDecoration(color: googleBlue, shape: BoxShape.circle),
                             child: Text(
                               '${channel.unreadCount}',
                               style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold),
@@ -483,7 +422,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                       color: isSelected ? googleBlue : googleBorder,
                       width: isSelected ? 1.2 : 0.8,
                     ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     onSelected: (_) {
                       BitchatService.instance.selectChannel(channel.id);
                       _scrollToBottom();
@@ -498,102 +437,29 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
     );
   }
 
-  // --- Active Channel Header ---
-  Widget _buildActiveChannelHeader() {
-    return ValueListenableBuilder<BitchatChannel?>(
-      valueListenable: BitchatService.instance.activeChannelNotifier,
-      builder: (context, activeChannel, _) {
-        if (activeChannel == null) return const SizedBox.shrink();
-
-        String typeDesc;
-        IconData typeIcon;
-        if (activeChannel.type == ChannelType.direct) {
-          typeDesc = 'End-to-End Encrypted Private Chat';
-          typeIcon = Icons.lock_outline;
-        } else if (activeChannel.id == 'mesh') {
-          typeDesc = 'BLE Mesh Broadcast (Local Proximity)';
-          typeIcon = Icons.bluetooth;
-        } else if (activeChannel.type == ChannelType.geohash) {
-          typeDesc = 'Nostr Geohash (${activeChannel.geohash ?? activeChannel.name})';
-          typeIcon = Icons.public;
-        } else {
-          typeDesc = 'Custom Broadcast Channel';
-          typeIcon = Icons.tag;
-        }
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          color: googleBackground,
-          child: Row(
-            children: [
-              Icon(typeIcon, size: 14, color: googleTextSecondary),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  typeDesc,
-                  style: const TextStyle(fontSize: 11, color: googleTextSecondary),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: googleHairline,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  activeChannel.id,
-                  style: const TextStyle(fontSize: 10, color: googleTextSecondary, fontFamily: 'monospace'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // --- Live Message Stream ---
   Widget _buildMessageList() {
     return ValueListenableBuilder<List<BitchatMessage>>(
       valueListenable: BitchatService.instance.currentChannelMessagesNotifier,
       builder: (context, messages, _) {
         if (messages.isEmpty) {
           return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: googleSurface,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: googleBorder, width: 1),
-                    ),
-                    child: const Icon(Icons.chat_bubble_outline_rounded, size: 40, color: googleBlue),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No Messages in Channel',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Send a message to broadcast to nearby mesh peers or subscribe to Nostr relay events.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: googleTextSecondary),
-                  ),
-                ],
-              ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.chat_bubble_outline_rounded, size: 36, color: googleBlue),
+                SizedBox(height: 10),
+                Text(
+                  'No messages yet',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: googleTextPrimary),
+                ),
+              ],
             ),
           );
         }
 
         return ListView.builder(
           controller: _scrollController,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           itemCount: messages.length,
           itemBuilder: (context, index) {
             final message = messages[index];
@@ -609,7 +475,6 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
     );
   }
 
-  // --- Composer Bar ---
   Widget _buildComposerBar() {
     return Container(
       decoration: const BoxDecoration(
@@ -618,31 +483,11 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Target channel indicator
-            ValueListenableBuilder<BitchatChannel?>(
-              valueListenable: BitchatService.instance.activeChannelNotifier,
-              builder: (context, activeChannel, _) {
-                final targetName = activeChannel?.name ?? 'Mesh';
-                return Padding(
-                  padding: const EdgeInsets.only(left: 4, bottom: 4),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.arrow_forward_ios, size: 9, color: googleTextSecondary),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Posting to: $targetName',
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: googleTextSecondary),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            Row(
+        child: ValueListenableBuilder<BitchatChannel?>(
+          valueListenable: BitchatService.instance.activeChannelNotifier,
+          builder: (context, activeChannel, _) {
+            final targetName = activeChannel?.name ?? 'channel';
+            return Row(
               children: [
                 Expanded(
                   child: Container(
@@ -657,11 +502,11 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                       textCapitalization: TextCapitalization.sentences,
                       maxLines: 4,
                       minLines: 1,
-                      style: const TextStyle(fontSize: 14, color: googleTextPrimary),
-                      decoration: const InputDecoration(
-                        hintText: 'Type a message to mesh...',
-                        hintStyle: TextStyle(fontSize: 13, color: googleTextSecondary),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      style: const TextStyle(fontSize: 13, color: googleTextPrimary),
+                      decoration: InputDecoration(
+                        hintText: 'Message $targetName...',
+                        hintStyle: const TextStyle(fontSize: 13, color: googleTextSecondary),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         border: InputBorder.none,
                       ),
                       onSubmitted: (_) {
@@ -677,13 +522,13 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_upward, size: 20, color: Colors.white),
+                    icon: const Icon(Icons.arrow_upward, size: 18, color: Colors.white),
                     onPressed: _canSend ? _sendMessage : null,
                   ),
                 ),
               ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -712,26 +557,26 @@ class BitchatMessageBubble extends StatelessWidget {
       onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
+        margin: const EdgeInsets.only(bottom: 6),
         child: Row(
           mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             if (!isMine) ...[
               CircleAvatar(
-                radius: 14,
+                radius: 13,
                 backgroundColor: googleBlueContainer,
                 child: Text(
                   message.sender.isNotEmpty ? message.sender[0].toUpperCase() : 'U',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue),
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
             ],
             Flexible(
               child: Container(
-                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
-                padding: const EdgeInsets.all(12),
+                constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.76),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: isMine ? const Color(0xFFE8F0FE) : googleSurface,
                   borderRadius: BorderRadius.only(
@@ -754,46 +599,31 @@ class BitchatMessageBubble extends StatelessWidget {
                         children: [
                           Text(
                             message.sender,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: googleBlue,
-                            ),
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleBlue),
                           ),
                           if (message.senderPeerID != null) ...[
-                            const SizedBox(width: 6),
+                            const SizedBox(width: 4),
                             Text(
                               '(${message.senderPeerID!.length >= 6 ? message.senderPeerID!.substring(0, 6) : message.senderPeerID})',
-                              style: const TextStyle(fontSize: 10, color: googleTextSecondary, fontFamily: 'monospace'),
+                              style: const TextStyle(fontSize: 9, color: googleTextSecondary, fontFamily: 'monospace'),
                             ),
                           ],
                         ],
                       ),
-                    if (!isMine) const SizedBox(height: 4),
-
-                    // Content
+                    if (!isMine) const SizedBox(height: 2),
                     SelectableText(
                       message.content,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: googleTextPrimary,
-                        height: 1.35,
-                      ),
+                      style: const TextStyle(fontSize: 13, color: googleTextPrimary, height: 1.3),
                     ),
-                    const SizedBox(height: 6),
-
-                    // Metadata row: Transport badge & timestamp
+                    const SizedBox(height: 4),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _buildTransportBadge(message.transportType),
-                        const SizedBox(width: 6),
-                        Text(
-                          timeStr,
-                          style: const TextStyle(fontSize: 10, color: googleTextSecondary),
-                        ),
+                        const SizedBox(width: 5),
+                        Text(timeStr, style: const TextStyle(fontSize: 9, color: googleTextSecondary)),
                         if (isMine) ...[
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 3),
                           _buildDeliveryStatusIcon(message.deliveryStatus),
                         ],
                       ],
@@ -832,20 +662,17 @@ class BitchatMessageBubble extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(4),
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(3),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 10, color: color),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color),
-          ),
+          Icon(icon, size: 9, color: color),
+          const SizedBox(width: 2),
+          Text(label, style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: color)),
         ],
       ),
     );
@@ -854,14 +681,14 @@ class BitchatMessageBubble extends StatelessWidget {
   Widget _buildDeliveryStatusIcon(DeliveryStatus status) {
     switch (status) {
       case DeliveryStatus.sending:
-        return const Icon(Icons.access_time, size: 11, color: googleTextSecondary);
+        return const Icon(Icons.access_time, size: 10, color: googleTextSecondary);
       case DeliveryStatus.sent:
-        return const Icon(Icons.check, size: 11, color: googleTextSecondary);
+        return const Icon(Icons.check, size: 10, color: googleTextSecondary);
       case DeliveryStatus.delivered:
       case DeliveryStatus.read:
-        return const Icon(Icons.done_all, size: 11, color: googleBlue);
+        return const Icon(Icons.done_all, size: 10, color: googleBlue);
       case DeliveryStatus.failed:
-        return const Icon(Icons.error_outline, size: 11, color: googleRed);
+        return const Icon(Icons.error_outline, size: 10, color: googleRed);
     }
   }
 }

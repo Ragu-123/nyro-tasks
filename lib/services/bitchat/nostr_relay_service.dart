@@ -40,11 +40,12 @@ class RelayHealth {
 
 class NostrRelayService {
   static final List<String> defaultRelays = [
-    'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.primal.net',
+    'wss://nostr.mom',
+    'wss://relay.snort.social',
     'wss://offchain.pub',
-    'wss://nostr21.com',
+    'wss://relay.damus.io',
   ];
 
   final Map<String, WebSocket> _sockets = {};
@@ -84,6 +85,22 @@ class NostrRelayService {
     _devicePrivateKeyHex = privateKeyHex;
     _devicePublicKeyHex = publicKeyHex;
     _nickname = nickname;
+
+    _activeSubscriptions['geo_global'] = {
+      'kinds': [20000, 20001, 1],
+      '#g': ['global'],
+      'limit': 50,
+    };
+    _activeSubscriptions['geo_gate2027'] = {
+      'kinds': [20000, 20001, 1],
+      '#g': ['gate2027'],
+      'limit': 50,
+    };
+    _activeSubscriptions['geo_mesh'] = {
+      'kinds': [20000, 20001, 1],
+      '#g': ['mesh'],
+      'limit': 50,
+    };
 
     final relaysToConnect = (customRelays ?? defaultRelays).where(isValidRelayUrl).toList();
     for (final url in relaysToConnect) {
@@ -559,7 +576,14 @@ class NostrRelayService {
       final cleanNick = sanitizeContent(senderNick, maxLength: 40);
       final safeNick = cleanNick.isNotEmpty ? cleanNick : 'Anonymous';
       final cleanGeohash = geohash != null ? sanitizeContent(geohash, maxLength: 32).toLowerCase() : null;
-      final channelId = (cleanGeohash != null && cleanGeohash.isNotEmpty) ? 'geo:$cleanGeohash' : 'geo:global';
+      final String channelId;
+      if (cleanGeohash == 'mesh') {
+        channelId = 'mesh';
+      } else if (cleanGeohash != null && cleanGeohash.isNotEmpty) {
+        channelId = 'geo:$cleanGeohash';
+      } else {
+        channelId = 'geo:global';
+      }
       final peerId = event.pubkey.length >= 16 ? event.pubkey.substring(0, 16) : event.pubkey;
 
       final message = BitchatMessage(

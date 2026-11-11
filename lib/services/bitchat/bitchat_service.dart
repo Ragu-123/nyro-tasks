@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/database_service.dart';
 import 'bitchat_models.dart';
 import 'ble_mesh_service.dart';
+import 'bluetooth_permission_service.dart';
 import 'nostr_crypto.dart';
 import 'nostr_relay_service.dart';
 
@@ -65,6 +66,8 @@ class BitchatService {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
+
+    await BluetoothPermissionService.requestPermissions();
 
     await _loadOrGenerateIdentity();
     await _loadChannels();
@@ -225,8 +228,16 @@ class BitchatService {
     if (currentChannel == null) return;
 
     if (currentChannel.id == 'mesh' || currentChannel.type == ChannelType.broadcast) {
+      // Dual-transport multi-dispatch: broadcast to local BLE mesh and publish to Nostr relays
       await bleMeshService.broadcastMessage(cleanContent, channel: currentChannel.id);
+      await nostrRelayService.publishEphemeralGeohashMessage(
+        geohash: 'mesh',
+        content: cleanContent,
+        nickname: _nickname,
+      );
     } else if (currentChannel.type == ChannelType.geohash && currentChannel.geohash != null) {
+      // Dual-transport multi-dispatch: publish to Nostr relays and broadcast to local BLE mesh
+      await bleMeshService.broadcastMessage(cleanContent, channel: currentChannel.id);
       await nostrRelayService.publishEphemeralGeohashMessage(
         geohash: currentChannel.geohash!,
         content: cleanContent,
@@ -238,13 +249,13 @@ class BitchatService {
 
       if (isBlePeer) {
         await bleMeshService.sendDirectMessage(peerId, cleanContent);
-      } else {
-        await nostrRelayService.publishDirectMessage(
-          recipientPubkeyHex: peerId,
-          content: cleanContent,
-          recipientNickname: currentChannel.name,
-        );
       }
+      // Also multi-dispatch direct message via Nostr relay so the recipient receives it across networks
+      await nostrRelayService.publishDirectMessage(
+        recipientPubkeyHex: peerId,
+        content: cleanContent,
+        recipientNickname: currentChannel.name,
+      );
     }
   }
 
@@ -375,11 +386,15 @@ class BitchatService {
 
   void toggleBleMesh(bool enable) {
     if (enable) {
+      BluetoothPermissionService.requestPermissions();
       bleMeshService.start();
     } else {
       bleMeshService.stop();
     }
   }
+
+  Future<bool> checkBluetoothPermissions() => BluetoothPermissionService.checkPermissions();
+  Future<bool> requestBluetoothPermissions() => BluetoothPermissionService.requestPermissions();
 
   Future<void> addCustomRelay(String url) async {
     await nostrRelayService.addRelay(url);

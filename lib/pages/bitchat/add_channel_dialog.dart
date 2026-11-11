@@ -51,104 +51,62 @@ class _AddChannelDialogState extends State<AddChannelDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: googleBlueContainer.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.add_circle_outline, color: googleBlue, size: 20),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Join or Create Channel',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: googleTextPrimary,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
             const Text(
-              'Channel Type',
+              'New Channel',
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: googleTextSecondary,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: googleTextPrimary,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
             Row(
               children: [
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Geohash Channel'),
-                    selected: _selectedType == ChannelType.geohash,
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() {
-                          _selectedType = ChannelType.geohash;
-                        });
-                      }
-                    },
-                    selectedColor: googleBlueContainer,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _selectedType == ChannelType.geohash ? googleBlue : googleTextSecondary,
-                    ),
-                    side: BorderSide(
-                      color: _selectedType == ChannelType.geohash ? googleBlue : googleBorder,
-                      width: 1,
-                    ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ChoiceChip(
+                  label: const Text('Geohash'),
+                  selected: _selectedType == ChannelType.geohash,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedType = ChannelType.geohash);
+                  },
+                  selectedColor: googleBlueContainer,
+                  labelStyle: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _selectedType == ChannelType.geohash ? googleBlue : googleTextSecondary,
                   ),
+                  side: BorderSide(
+                    color: _selectedType == ChannelType.geohash ? googleBlue : googleBorder,
+                    width: 1,
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: ChoiceChip(
-                    label: const Text('Custom Mesh'),
-                    selected: _selectedType == ChannelType.broadcast,
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() {
-                          _selectedType = ChannelType.broadcast;
-                        });
-                      }
-                    },
-                    selectedColor: googleBlueContainer,
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _selectedType == ChannelType.broadcast ? googleBlue : googleTextSecondary,
-                    ),
-                    side: BorderSide(
-                      color: _selectedType == ChannelType.broadcast ? googleBlue : googleBorder,
-                      width: 1,
-                    ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ChoiceChip(
+                  label: const Text('Broadcast'),
+                  selected: _selectedType == ChannelType.broadcast,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedType = ChannelType.broadcast);
+                  },
+                  selectedColor: googleBlueContainer,
+                  labelStyle: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _selectedType == ChannelType.broadcast ? googleBlue : googleTextSecondary,
                   ),
+                  side: BorderSide(
+                    color: _selectedType == ChannelType.broadcast ? googleBlue : googleBorder,
+                    width: 1,
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              _selectedType == ChannelType.geohash ? 'Channel Display Name' : 'Channel Name',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: googleTextSecondary,
-              ),
-            ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 14),
             TextField(
               controller: _nameController,
+              autofocus: true,
               decoration: InputDecoration(
-                hintText: _selectedType == ChannelType.geohash ? 'e.g. GATE Bangalore' : 'e.g. Algorithms Study',
+                hintText: _selectedType == ChannelType.geohash ? 'Channel Name (e.g. Bangalore)' : 'Channel Name',
                 hintStyle: const TextStyle(fontSize: 13, color: googleTextSecondary),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 border: OutlineInputBorder(
@@ -166,20 +124,11 @@ class _AddChannelDialogState extends State<AddChannelDialog> {
               ),
             ),
             if (_selectedType == ChannelType.geohash) ...[
-              const SizedBox(height: 14),
-              const Text(
-                'Geohash Tag',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: googleTextSecondary,
-                ),
-              ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 10),
               TextField(
                 controller: _geohashController,
                 decoration: InputDecoration(
-                  hintText: 'e.g. tdnu2, gate2027, blr',
+                  hintText: 'Geohash tag (e.g. gate2027, tdnu2)',
                   hintStyle: const TextStyle(fontSize: 13, color: googleTextSecondary),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   border: OutlineInputBorder(
@@ -196,22 +145,14 @@ class _AddChannelDialogState extends State<AddChannelDialog> {
                   ),
                 ),
               ),
-              const SizedBox(height: 6),
-              const Text(
-                'Geohashes route through Nostr relays with location privacy keys.',
-                style: TextStyle(fontSize: 11, color: googleTextSecondary),
-              ),
             ],
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: googleTextSecondary, fontSize: 13),
-                  ),
+                  child: const Text('Cancel', style: TextStyle(color: googleTextSecondary, fontSize: 13)),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
@@ -223,7 +164,7 @@ class _AddChannelDialogState extends State<AddChannelDialog> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   ),
-                  child: const Text('Add Channel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  child: const Text('Add', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 ),
               ],
             ),

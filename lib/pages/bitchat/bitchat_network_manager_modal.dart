@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import '../../services/bitchat/bitchat_models.dart';
 import '../../services/bitchat/bitchat_service.dart';
 import '../../utils/theme.dart';
@@ -34,7 +33,7 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
     TopBanner.show(
       context,
       title: 'Copied',
-      message: '$label copied to clipboard.',
+      message: '$label copied.',
       icon: Icons.check_circle_outline,
       color: googleGreen,
     );
@@ -48,14 +47,14 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         backgroundColor: googleSurface,
         title: const Text(
-          'Edit Mesh Nickname',
+          'Edit Nickname',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
         ),
         content: TextField(
           controller: controller,
           autofocus: true,
           decoration: InputDecoration(
-            hintText: 'Enter new nickname',
+            hintText: 'Enter nickname',
             hintStyle: const TextStyle(fontSize: 13, color: googleTextSecondary),
             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             border: OutlineInputBorder(
@@ -103,14 +102,14 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         backgroundColor: googleSurface,
         title: const Text(
-          'Add Nostr Relay',
+          'Add Relay',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
         ),
         content: TextField(
           controller: controller,
           autofocus: true,
           decoration: InputDecoration(
-            hintText: 'wss://relay.example.com',
+            hintText: 'wss://relay.damus.io',
             hintStyle: const TextStyle(fontSize: 13, color: googleTextSecondary),
             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             border: OutlineInputBorder(
@@ -142,7 +141,7 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
               elevation: 0,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            child: const Text('Add Relay', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            child: const Text('Add', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -152,14 +151,13 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: MediaQuery.of(context).size.height * 0.82,
+      height: MediaQuery.of(context).size.height * 0.78,
       decoration: const BoxDecoration(
         color: googleSurface,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
         children: [
-          // Drag handle
           const SizedBox(height: 10),
           Center(
             child: Container(
@@ -172,41 +170,20 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
             ),
           ),
           const SizedBox(height: 12),
-
-          // Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: googleBlueContainer.withOpacity(0.4),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.hub_outlined, color: googleBlue, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
-                        'Network & Mesh Manager',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: googleTextPrimary,
-                        ),
-                      ),
-                      Text(
-                        'Bluetooth mesh, Nostr relays, and keys',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: googleTextSecondary,
-                        ),
-                      ),
-                    ],
+                const Icon(Icons.hub_outlined, color: googleBlue, size: 20),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Network & Mesh',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: googleTextPrimary,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -216,26 +193,21 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
               ],
             ),
           ),
-          const SizedBox(height: 10),
-
-          // Tab Bar
           TabBar(
             controller: _tabController,
             indicatorColor: googleBlue,
-            indicatorWeight: 2.5,
+            indicatorWeight: 2,
             labelColor: googleBlue,
             unselectedLabelColor: googleTextSecondary,
             labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.normal),
             tabs: const [
-              Tab(icon: Icon(Icons.bluetooth, size: 18), text: 'BLE Mesh'),
+              Tab(icon: Icon(Icons.bluetooth, size: 18), text: 'Bluetooth'),
               Tab(icon: Icon(Icons.dns_outlined, size: 18), text: 'Relays'),
               Tab(icon: Icon(Icons.fingerprint, size: 18), text: 'Identity'),
             ],
           ),
           const Divider(height: 1, thickness: 1, color: googleHairline),
-
-          // Tab views
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -251,7 +223,6 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
     );
   }
 
-  // --- Tab 1: BLE Mesh ---
   Widget _buildBleMeshTab() {
     return ValueListenableBuilder<bool>(
       valueListenable: BitchatService.instance.bleMeshActiveNotifier,
@@ -262,9 +233,8 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // BLE Mesh Switch Card
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
                     color: isMeshActive ? googleBlueContainer.withOpacity(0.2) : googleBackground,
                     borderRadius: BorderRadius.circular(12),
@@ -275,64 +245,37 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
                   ),
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: isMeshActive ? googleBlue : googleBorder,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          isMeshActive ? Icons.bluetooth : Icons.bluetooth_disabled,
-                          color: Colors.white,
-                          size: 18,
-                        ),
+                      Icon(
+                        isMeshActive ? Icons.bluetooth : Icons.bluetooth_disabled,
+                        color: isMeshActive ? googleBlue : googleTextSecondary,
+                        size: 20,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isMeshActive ? 'Bluetooth Mesh Active' : 'Bluetooth Mesh Paused',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: googleTextPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              isMeshActive
-                                  ? 'Advertising service F47B5E2D & scanning for local peers'
-                                  : 'Mesh radio is turned off',
-                              style: const TextStyle(fontSize: 11, color: googleTextSecondary),
-                            ),
-                          ],
+                        child: Text(
+                          isMeshActive ? 'Bluetooth Mesh Active' : 'Bluetooth Mesh Paused',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: googleTextPrimary,
+                          ),
                         ),
                       ),
                       Switch(
                         value: isMeshActive,
                         activeColor: googleBlue,
-                        onChanged: (val) {
-                          BitchatService.instance.toggleBleMesh(val);
-                        },
+                        onChanged: (val) => BitchatService.instance.toggleBleMesh(val),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
-
-                // Peers Header
+                const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Nearby Mesh Peers (${peers.length})',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: googleTextPrimary,
-                      ),
+                      'Nearby Peers (${peers.length})',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
                     ),
                     if (isMeshActive)
                       Row(
@@ -340,12 +283,9 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
                           Container(
                             width: 6,
                             height: 6,
-                            decoration: const BoxDecoration(
-                              color: googleGreen,
-                              shape: BoxShape.circle,
-                            ),
+                            decoration: const BoxDecoration(color: googleGreen, shape: BoxShape.circle),
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 5),
                           const Text(
                             'Scanning',
                             style: TextStyle(fontSize: 11, color: googleGreen, fontWeight: FontWeight.w600),
@@ -354,11 +294,10 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
                       ),
                   ],
                 ),
-                const SizedBox(height: 10),
-
+                const SizedBox(height: 8),
                 if (peers.isEmpty)
                   Container(
-                    padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+                    padding: const EdgeInsets.all(28),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: googleBackground,
@@ -366,18 +305,12 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
                       border: Border.all(color: googleBorder, width: 1),
                     ),
                     child: Column(
-                      children: [
-                        const Icon(Icons.bluetooth_searching, color: googleTextSecondary, size: 36),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'No Nearby Peers Discovered',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Nearby devices running BitChat on the same GATT service will appear here automatically.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 11, color: googleTextSecondary),
+                      children: const [
+                        Icon(Icons.bluetooth_searching, color: googleTextSecondary, size: 28),
+                        SizedBox(height: 8),
+                        Text(
+                          'No peers found',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: googleTextPrimary),
                         ),
                       ],
                     ),
@@ -395,56 +328,34 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
   Widget _buildPeerTile(BitchatPeer peer) {
     return Container(
       key: ValueKey('peer_${peer.peerID}'),
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: googleSurface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: googleBorder, width: 1),
       ),
       child: Row(
         children: [
           CircleAvatar(
-            radius: 18,
+            radius: 16,
             backgroundColor: googleBlueContainer,
             child: Text(
               peer.nickname.isNotEmpty ? peer.nickname[0].toUpperCase() : 'P',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: googleBlue),
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleBlue),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      peer.nickname,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: peer.isDirect ? googleBlueContainer.withOpacity(0.5) : googleBackground,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: googleBorder, width: 0.5),
-                      ),
-                      child: Text(
-                        peer.isDirect ? 'Direct' : 'Relayed',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: peer.isDirect ? googleBlue : googleTextSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
                 Text(
-                  'ID: ${peer.peerID} | Signal: ${peer.rssi ?? -70} dBm',
+                  peer.nickname,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                ),
+                Text(
+                  'ID: ${peer.peerID} | ${peer.rssi ?? -70} dBm',
                   style: const TextStyle(fontSize: 11, color: googleTextSecondary),
                 ),
               ],
@@ -458,79 +369,32 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
             style: OutlinedButton.styleFrom(
               foregroundColor: googleBlue,
               side: const BorderSide(color: googleBlue, width: 1),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            child: const Text('Chat', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            child: const Text('Chat', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
     );
   }
 
-  // --- Tab 2: Nostr Relays ---
   Widget _buildRelaysTab() {
     return ValueListenableBuilder<Map<String, bool>>(
       valueListenable: BitchatService.instance.relayStatusNotifier,
       builder: (context, relayStatus, _) {
         final connectedCount = relayStatus.values.where((v) => v).length;
         final totalCount = relayStatus.length;
-        final healthMap = BitchatService.instance.nostrRelayService.relayHealth;
 
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Status Summary Card
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: googleBackground,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: googleBorder, width: 1),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: connectedCount > 0 ? googleGreen.withOpacity(0.15) : googleAmber.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.cloud_outlined,
-                      color: connectedCount > 0 ? googleGreen : googleAmber,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$connectedCount of $totalCount Relays Connected',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'WebSockets handle geohashes, presence, and remote routing',
-                          style: TextStyle(fontSize: 11, color: googleTextSecondary),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Relays Header with Add Button
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Configured Relays',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                Text(
+                  'Relays ($connectedCount/$totalCount online)',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
                 ),
                 TextButton.icon(
                   onPressed: _showAddRelayDialog,
@@ -539,68 +403,51 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-
+            const SizedBox(height: 6),
             ...relayStatus.entries.map((entry) {
               final url = entry.key;
               final isConnected = entry.value;
-              final health = healthMap[url];
               final isDefault = [
-                'wss://relay.damus.io',
                 'wss://nos.lol',
                 'wss://relay.primal.net',
+                'wss://nostr.mom',
+                'wss://relay.snort.social',
                 'wss://offchain.pub',
+                'wss://relay.damus.io',
                 'wss://nostr21.com',
               ].contains(url);
 
               return Container(
                 key: ValueKey('relay_$url'),
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: googleSurface,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: googleBorder, width: 1),
                 ),
                 child: Row(
                   children: [
                     Container(
-                      width: 10,
-                      height: 10,
+                      width: 8,
+                      height: 8,
                       decoration: BoxDecoration(
                         color: isConnected ? googleGreen : googleAmber,
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            url,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: googleTextPrimary),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isConnected
-                                ? 'Connected | Sent: ${health?.messagesSent ?? 0} | Recv: ${health?.messagesReceived ?? 0}'
-                                : 'Connecting / Retrying...',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isConnected ? googleTextSecondary : googleAmber,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        url,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: googleTextPrimary),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (!isDefault)
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18, color: googleRed),
-                        tooltip: 'Remove Relay',
-                        onPressed: () {
-                          BitchatService.instance.removeCustomRelay(url);
-                        },
+                        icon: const Icon(Icons.close, size: 16, color: googleRed),
+                        onPressed: () => BitchatService.instance.removeCustomRelay(url),
                       ),
                   ],
                 ),
@@ -612,7 +459,6 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
     );
   }
 
-  // --- Tab 3: Cryptographic Identity ---
   Widget _buildIdentityTab() {
     return ValueListenableBuilder<String>(
       valueListenable: BitchatService.instance.currentNicknameNotifier,
@@ -623,9 +469,8 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Profile Card
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: googleBackground,
                 borderRadius: BorderRadius.circular(12),
@@ -634,83 +479,44 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 24,
+                    radius: 20,
                     backgroundColor: googleBlue,
                     child: Text(
                       nickname.isNotEmpty ? nickname[0].toUpperCase() : 'U',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          nickname,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Active Mesh Alias',
-                          style: TextStyle(fontSize: 11, color: googleTextSecondary),
-                        ),
-                      ],
+                    child: Text(
+                      nickname,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: googleTextPrimary),
                     ),
                   ),
                   OutlinedButton.icon(
                     onPressed: _showEditNicknameDialog,
-                    icon: const Icon(Icons.edit, size: 14, color: googleBlue),
+                    icon: const Icon(Icons.edit, size: 13, color: googleBlue),
                     label: const Text('Edit', style: TextStyle(fontSize: 12, color: googleBlue, fontWeight: FontWeight.w600)),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: googleBlue, width: 1),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-
-            // Peer ID Card
+            const SizedBox(height: 12),
             _buildKeyCard(
-              title: 'BLE Peer ID (Noise Hash)',
-              subtitle: '16 hex characters used for peer discovery & BLE direct routing',
+              title: 'Peer ID',
               value: peerId,
               icon: Icons.bluetooth,
             ),
-            const SizedBox(height: 12),
-
-            // Nostr npub Card
+            const SizedBox(height: 8),
             _buildKeyCard(
-              title: 'Nostr Public Key (npub)',
-              subtitle: 'Bech32 identity used for NIP-17 direct messaging over Nostr',
+              title: 'Nostr Public Key',
               value: npub,
               icon: Icons.key_outlined,
-            ),
-            const SizedBox(height: 16),
-
-            // Security note
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: googleHairline,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Icon(Icons.shield_outlined, size: 16, color: googleTextSecondary),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'All local mesh messages are signed and direct chats are end-to-end encrypted. Geohash channels derive ephemeral keys deterministically.',
-                      style: TextStyle(fontSize: 11, color: googleTextSecondary, height: 1.4),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ],
         );
@@ -720,15 +526,14 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
 
   Widget _buildKeyCard({
     required String title,
-    required String subtitle,
     required String value,
     required IconData icon,
   }) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: googleSurface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: googleBorder, width: 1),
       ),
       child: Column(
@@ -736,19 +541,17 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: googleBlue),
-              const SizedBox(width: 8),
+              Icon(icon, size: 14, color: googleBlue),
+              const SizedBox(width: 6),
               Text(
                 title,
                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextPrimary),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(subtitle, style: const TextStyle(fontSize: 11, color: googleTextSecondary)),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
               color: googleBackground,
               borderRadius: BorderRadius.circular(6),
@@ -759,11 +562,7 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
                 Expanded(
                   child: Text(
                     value.isNotEmpty ? value : 'Generating...',
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: googleTextPrimary,
-                    ),
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: googleTextPrimary),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -772,7 +571,7 @@ class _BitchatNetworkManagerModalState extends State<BitchatNetworkManagerModal>
                   onTap: () => _copyToClipboard(value, title),
                   child: const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: Icon(Icons.copy, size: 16, color: googleBlue),
+                    child: Icon(Icons.copy, size: 15, color: googleBlue),
                   ),
                 ),
               ],
