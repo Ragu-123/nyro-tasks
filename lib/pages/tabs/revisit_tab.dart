@@ -6,6 +6,7 @@ import 'package:tasks/utils/theme.dart';
 import 'package:tasks/utils/url_helper.dart';
 import 'package:tasks/widgets/google_checkbox.dart';
 import 'package:tasks/widgets/add_mistake_modal_sheet.dart';
+import 'package:tasks/pages/tabs/quizzes_tab.dart';
 
 class RevisitTab extends StatefulWidget {
   final VoidCallback onDataChanged;
@@ -299,9 +300,51 @@ class _RevisitTabState extends State<RevisitTab> {
                 ],
               ),
               Text(
-                '$subject ${quiz.isNotEmpty ? "• $quiz" : ""}',
+                subject,
                 style: const TextStyle(fontSize: 12, color: googleTextSecondary),
               ),
+              if (quiz.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(context);
+                    showQuizTrapsModalSheet(
+                      context,
+                      quizTitle: quiz,
+                      subject: subject,
+                      onDataChanged: () {
+                        _loadData();
+                        widget.onDataChanged();
+                      },
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: googleBlue.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: googleBlue.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 16, color: googleBlue),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('QUIZ TRAPS • TAP TO VIEW ALL', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleBlue)),
+                              Text(quiz, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: googleTextPrimary)),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios_rounded, size: 12, color: googleBlue),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               const Divider(height: 1, thickness: 1, color: googleHairline),
               const SizedBox(height: 12),
@@ -1173,9 +1216,52 @@ class _RevisitTabState extends State<RevisitTab> {
                                 ],
                               ),
                               const SizedBox(height: 4),
-                              Text(
-                                '$subject ${quiz.isNotEmpty ? "• $quiz" : ""}',
-                                style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+                              Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  Text(
+                                    subject,
+                                    style: const TextStyle(fontSize: 11, color: googleTextSecondary),
+                                  ),
+                                  if (quiz.isNotEmpty)
+                                    InkWell(
+                                      onTap: () {
+                                        showQuizTrapsModalSheet(
+                                          context,
+                                          quizTitle: quiz,
+                                          subject: subject,
+                                          onDataChanged: () {
+                                            _loadData();
+                                            widget.onDataChanged();
+                                          },
+                                        );
+                                      },
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: googleBlue.withOpacity(0.08),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: googleBlue.withOpacity(0.2)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.warning_amber_rounded, size: 11, color: googleBlue),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              quiz,
+                                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: googleBlue),
+                                            ),
+                                            const SizedBox(width: 2),
+                                            const Icon(Icons.arrow_forward_ios_rounded, size: 8, color: googleBlue),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                               if (qText.isNotEmpty) ...[
                                 const SizedBox(height: 4),

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:tasks/data/database_service.dart';
 import 'package:tasks/utils/theme.dart';
 import 'package:tasks/utils/url_helper.dart';
+import 'package:tasks/widgets/add_mistake_modal_sheet.dart';
 import 'package:tasks/widgets/google_checkbox.dart';
 
 enum QuizSortOption {
@@ -129,7 +130,8 @@ class _QuizzesTabState extends State<QuizzesTab> {
           final title = (q['title'] ?? '').toString();
           final id = q['id'] as int;
           if (title.isEmpty) return MapEntry(id, 0);
-          final cnt = await DatabaseService.instance.getMistakeCountForQuiz(title);
+          final subject = (q['subject'] ?? '').toString();
+          final cnt = await DatabaseService.instance.getMistakeCountForQuiz(title, subject: subject);
           return MapEntry(id, cnt);
         }),
       );
@@ -313,152 +315,14 @@ class _QuizzesTabState extends State<QuizzesTab> {
     );
   }
 
-  void _showQuizTrapsSheet(Map<String, dynamic> q) async {
-    final title = q['title'] ?? 'Quiz';
-    final mistakes = await DatabaseService.instance.getMistakeRecordsFiltered(quizTitle: title);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.75,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE0E2EC),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Logged Traps • $title',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${mistakes.length} recorded mistake notes for this quiz',
-                style: const TextStyle(fontSize: 12, color: googleTextSecondary),
-              ),
-              const SizedBox(height: 12),
-              const Divider(height: 1, thickness: 1, color: googleHairline),
-              Expanded(
-                child: mistakes.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No mistakes logged for this specific quiz title yet.',
-                          style: TextStyle(fontSize: 13, color: googleTextSecondary),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: mistakes.length,
-                        itemBuilder: (context, idx) {
-                          final m = mistakes[idx];
-                          final topic = m['topic'] ?? '';
-                          final qText = m['question_text'] ?? '';
-                          final reason = m['mistake_reason'] ?? '';
-                          final takeaway = m['key_takeaway'] ?? '';
-                          final wrong = (m['wrong_answer'] as String?)?.trim() ?? '';
-                          final correct = (m['correct_answer'] as String?)?.trim() ?? '';
-                          final sev = m['severity'] ?? 'MEDIUM';
-
-                          Color sevCol = severityMed;
-                          if (sev == 'HIGH') sevCol = severityHigh;
-                          if (sev == 'LOW') sevCol = severityLow;
-
-                          return Container(
-                            margin: const EdgeInsets.only(top: 12),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFD),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: googleHairline),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: sevCol.withOpacity(0.12),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        sev,
-                                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: sevCol),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        topic,
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (qText.isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  const Text('Question / Source:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary)),
-                                  const SizedBox(height: 2),
-                                  MarkdownBody(
-                                    data: qText,
-                                    styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                                      p: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.3),
-                                    ),
-                                    onTapLink: (text, href, title) => openExternalUrl(href),
-                                  ),
-                                ],
-                                if (wrong.isNotEmpty || correct.isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      if (wrong.isNotEmpty)
-                                        Expanded(
-                                          child: Text('Wrong: $wrong', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: severityHigh)),
-                                        ),
-                                      if (correct.isNotEmpty)
-                                        Expanded(
-                                          child: Text('Correct: $correct', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleGreen)),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                                if (reason.isNotEmpty) ...[
-                                  const SizedBox(height: 6),
-                                  Text('Trap: $reason', style: const TextStyle(fontSize: 11, color: severityMed)),
-                                ],
-                                const SizedBox(height: 6),
-                                MarkdownBody(
-                                  data: takeaway,
-                                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                                    p: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.3),
-                                  ),
-                                  onTapLink: (text, href, title) => openExternalUrl(href),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
+  void _showQuizTrapsSheet(Map<String, dynamic> q) {
+    showQuizTrapsModalSheet(
+      context,
+      quizTitle: q['title'] ?? 'Quiz',
+      subject: q['subject'] as String?,
+      onDataChanged: () {
+        _loadQuizzes();
+        widget.onDataChanged();
       },
     );
   }
@@ -874,4 +738,218 @@ class _QuizzesTabState extends State<QuizzesTab> {
       ),
     );
   }
+}
+
+Future<void> showQuizTrapsModalSheet(
+  BuildContext context, {
+  required String quizTitle,
+  String? subject,
+  VoidCallback? onDataChanged,
+}) async {
+  final mistakes = await DatabaseService.instance.getMistakeRecordsFiltered(
+    quizTitle: quizTitle,
+    subject: subject,
+  );
+
+  if (!context.mounted) return;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) {
+      return Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0E2EC),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Logged Traps • $quizTitle',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${mistakes.length} recorded mistake notes for this quiz',
+                        style: const TextStyle(fontSize: 12, color: googleTextSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    showAddMistakeModalSheet(
+                      context,
+                      initialQuizTitle: quizTitle,
+                      initialSubject: subject,
+                      onSaved: () {
+                        onDataChanged?.call();
+                      },
+                    );
+                  },
+                  icon: const Icon(Icons.add, size: 16, color: googleBlue),
+                  label: const Text('Log Trap', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleBlue)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    backgroundColor: googleBlue.withOpacity(0.08),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1, thickness: 1, color: googleHairline),
+            Expanded(
+              child: mistakes.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.check_circle_outline_rounded, size: 40, color: googleGreen),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'No mistakes logged for this specific quiz yet.',
+                            style: TextStyle(fontSize: 13, color: googleTextSecondary),
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              showAddMistakeModalSheet(
+                                context,
+                                initialQuizTitle: quizTitle,
+                                initialSubject: subject,
+                                onSaved: () {
+                                  onDataChanged?.call();
+                                },
+                              );
+                            },
+                            icon: const Icon(Icons.add, size: 16, color: googleBlue),
+                            label: const Text('Add First Mistake Trap'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: mistakes.length,
+                      itemBuilder: (context, idx) {
+                        final m = mistakes[idx];
+                        final topic = m['topic'] ?? '';
+                        final qText = m['question_text'] ?? '';
+                        final reason = m['mistake_reason'] ?? '';
+                        final takeaway = m['key_takeaway'] ?? '';
+                        final wrong = (m['wrong_answer'] as String?)?.trim() ?? '';
+                        final correct = (m['correct_answer'] as String?)?.trim() ?? '';
+                        final sev = m['severity'] ?? 'MEDIUM';
+
+                        Color sevCol = severityMed;
+                        if (sev == 'HIGH') sevCol = severityHigh;
+                        if (sev == 'LOW') sevCol = severityLow;
+
+                        return Container(
+                          margin: const EdgeInsets.only(top: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFD),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: googleHairline),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: sevCol.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      sev,
+                                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: sevCol),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      topic,
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (qText.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                const Text('Question / Source:', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: googleTextSecondary)),
+                                const SizedBox(height: 2),
+                                MarkdownBody(
+                                  data: qText,
+                                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                    p: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.3),
+                                  ),
+                                  onTapLink: (text, href, title) => openExternalUrl(href),
+                                ),
+                              ],
+                              if (wrong.isNotEmpty || correct.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    if (wrong.isNotEmpty)
+                                      Expanded(
+                                        child: Text('Wrong: $wrong', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: severityHigh)),
+                                      ),
+                                    if (correct.isNotEmpty)
+                                      Expanded(
+                                        child: Text('Correct: $correct', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: googleGreen)),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                              if (reason.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text('Trap: $reason', style: const TextStyle(fontSize: 11, color: severityMed)),
+                              ],
+                              const SizedBox(height: 6),
+                              MarkdownBody(
+                                data: takeaway,
+                                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                                  p: const TextStyle(fontSize: 12, color: googleTextPrimary, height: 1.3),
+                                ),
+                                onTapLink: (text, href, title) => openExternalUrl(href),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }

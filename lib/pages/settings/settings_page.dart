@@ -50,6 +50,18 @@ class _SettingsPageState extends State<SettingsPage> {
   int _quizCount = 0;
   int _mistakeCount = 0;
 
+  StateSetter? _subPageSetState;
+
+  @override
+  void setState(VoidCallback fn) {
+    if (mounted) {
+      super.setState(fn);
+    }
+    try {
+      _subPageSetState?.call(() {});
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
@@ -168,22 +180,30 @@ class _SettingsPageState extends State<SettingsPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: const Color(0xFFF8FAFC),
-          appBar: AppBar(
-            title: Text(
-              title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: googleTextPrimary),
-            ),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_rounded, color: googleTextPrimary),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
-          body: builder(context),
+        builder: (routeContext) => StatefulBuilder(
+          builder: (subContext, setSubState) {
+            _subPageSetState = setSubState;
+            return Scaffold(
+              backgroundColor: const Color(0xFFF8FAFC),
+              appBar: AppBar(
+                title: Text(
+                  title,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                ),
+                leading: IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded, color: googleTextPrimary),
+                  onPressed: () => Navigator.pop(routeContext),
+                ),
+              ),
+              body: builder(subContext),
+            );
+          },
         ),
       ),
-    ).then((_) => _loadAllSettings());
+    ).then((_) {
+      _subPageSetState = null;
+      _loadAllSettings();
+    });
   }
 
   // --- Cloud Actions ---
@@ -261,19 +281,36 @@ class _SettingsPageState extends State<SettingsPage> {
   // --- Log Server Actions ---
 
   Future<void> _toggleLogServer(bool enable) async {
+    setState(() {
+      _serverRunning = enable;
+    });
     if (enable) {
-      final url = await DesktopLogServerService.instance.startServer();
-      setState(() {
-        _serverRunning = true;
-        _serverUrl = url;
-      });
-      TopBanner.show(
-        context,
-        title: 'Laptop Server Online',
-        message: 'Connect laptop to $url',
-        icon: Icons.wifi_tethering_rounded,
-        color: googleGreen,
-      );
+      try {
+        final url = await DesktopLogServerService.instance.startServer();
+        setState(() {
+          _serverRunning = true;
+          _serverUrl = url;
+        });
+        TopBanner.show(
+          context,
+          title: 'Laptop Server Online',
+          message: 'Connect laptop to $url',
+          icon: Icons.wifi_tethering_rounded,
+          color: googleGreen,
+        );
+      } catch (e) {
+        setState(() {
+          _serverRunning = false;
+          _serverUrl = null;
+        });
+        TopBanner.show(
+          context,
+          title: 'Server Error',
+          message: 'Failed to start server: $e',
+          icon: Icons.error_outline_rounded,
+          color: googleRed,
+        );
+      }
     } else {
       await DesktopLogServerService.instance.stopServer();
       setState(() {
@@ -925,120 +962,135 @@ class _SettingsPageState extends State<SettingsPage> {
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: googleGreen.withOpacity(0.3)),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.link_rounded, color: googleGreen, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: SelectableText(
-                            _serverUrl!,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
-                          tooltip: 'Copy URL',
-                          onPressed: () {
-                            Clipboard.setData(ClipboardData(text: _serverUrl!));
-                            TopBanner.show(
-                              context,
-                              title: 'URL Copied',
-                              message: 'Copied ${_serverUrl!} to clipboard.',
-                              icon: Icons.check_circle_outline_rounded,
-                              color: googleGreen,
-                            );
-                          },
-                        ),
-                      ],
+                    const Icon(Icons.link_rounded, color: googleGreen, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SelectableText(
+                        _serverUrl!,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    const Divider(height: 1, thickness: 1, color: Color(0xFFDCFCE7)),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.shield_rounded, size: 14, color: googleGreen),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Public Wi-Fi Shield PIN',
-                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: googleTextSecondary),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: googleGreen.withOpacity(0.4)),
-                              ),
-                              child: Text(
-                                DesktopLogServerService.instance.pairingPin,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 4,
-                                  color: googleGreen,
-                                  fontFamily: 'monospace',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
-                              tooltip: 'Copy PIN',
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: DesktopLogServerService.instance.pairingPin));
-                                TopBanner.show(
-                                  context,
-                                  title: 'PIN Copied',
-                                  message: '6-digit PIN copied to clipboard.',
-                                  icon: Icons.shield_rounded,
-                                  color: googleGreen,
-                                );
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.refresh_rounded, size: 20, color: googleBlue),
-                              tooltip: 'Regenerate PIN',
-                              onPressed: () {
-                                setState(() {
-                                  DesktopLogServerService.instance.generateNewPin();
-                                });
-                                TopBanner.show(
-                                  context,
-                                  title: 'New PIN Generated',
-                                  message: 'Existing desktop connections will need this new PIN.',
-                                  icon: Icons.vpn_key_rounded,
-                                  color: googleBlue,
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ],
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, size: 18, color: googleGreen),
+                      tooltip: 'Copy URL',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: _serverUrl!));
+                        TopBanner.show(
+                          context,
+                          title: 'URL Copied',
+                          message: 'Copied ${_serverUrl!} to clipboard.',
+                          icon: Icons.check_circle_outline_rounded,
+                          color: googleGreen,
+                        );
+                      },
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Text(
-                'Open this URL in Chrome/Edge on your laptop and enter the 6-digit PIN to securely log & review mistakes on public Wi-Fi.',
+                'Open this URL in Chrome/Edge on your laptop to log & review mistakes.',
                 style: TextStyle(fontSize: 11, color: googleTextSecondary),
               ),
             ],
+            const Divider(height: 20, thickness: 1, color: googleHairline),
+
+            // Prominently visible 6-digit PIN Card (always visible with Copy and Refresh)
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: googleBorder, width: 1),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.shield_rounded, size: 16, color: googleGreen),
+                      SizedBox(width: 6),
+                      Text(
+                        'Public Wi-Fi Shield PIN (6-digit)',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: googleTextPrimary),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Required to authenticate and log mistake questions from your laptop browser.',
+                    style: TextStyle(fontSize: 11, color: googleTextSecondary),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: googleGreen.withOpacity(0.5), width: 1.2),
+                        ),
+                        child: Text(
+                          DesktopLogServerService.instance.pairingPin,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 4,
+                            color: googleGreen,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.copy_rounded, size: 15),
+                            label: const Text('Copy PIN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: googleGreen,
+                              side: BorderSide(color: googleGreen.withOpacity(0.5)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            ),
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: DesktopLogServerService.instance.pairingPin));
+                              TopBanner.show(
+                                context,
+                                title: 'PIN Copied',
+                                message: '6-digit PIN copied to clipboard.',
+                                icon: Icons.shield_rounded,
+                                color: googleGreen,
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.refresh_rounded, size: 22, color: googleBlue),
+                            tooltip: 'Regenerate PIN',
+                            onPressed: () {
+                              setState(() {
+                                DesktopLogServerService.instance.generateNewPin();
+                              });
+                              TopBanner.show(
+                                context,
+                                title: 'New PIN Generated',
+                                message: 'Existing desktop connections revoked. Enter this new PIN on laptop.',
+                                icon: Icons.vpn_key_rounded,
+                                color: googleBlue,
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

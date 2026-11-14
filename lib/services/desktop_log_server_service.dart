@@ -272,7 +272,18 @@ class DesktopLogServerService {
       return;
     }
 
-    // 4. Server Status Endpoint (Public)
+    // 4. Auth Logout Endpoint (Invalidates Session)
+    if ((request.method == 'POST' || request.method == 'GET') && path == '/api/auth/logout') {
+      if (token != null) {
+        _activeSessions.remove(token);
+      }
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'success': true, 'message': 'Logged out successfully'}));
+      await request.response.close();
+      return;
+    }
+
+    // 5. Server Status Endpoint (Public)
     if (request.method == 'GET' && path == '/api/status') {
       final data = {
         'status': 'online',
@@ -300,7 +311,7 @@ class DesktopLogServerService {
       return;
     }
 
-    // 5. Distinct Subjects List
+    // 6. Distinct Subjects List
     if (request.method == 'GET' && path == '/api/subjects') {
       final subjs = await DatabaseService.instance.getAllDistinctSubjects();
       request.response.headers.contentType = ContentType.json;
@@ -309,17 +320,35 @@ class DesktopLogServerService {
       return;
     }
 
-    // 6. Mistakes API
+    // 7. Mistakes API
     if (request.method == 'GET' && path == '/api/mistakes') {
       final subjectFilter = request.uri.queryParameters['subject'];
       final severityFilter = request.uri.queryParameters['severity'];
+      final statusFilter = request.uri.queryParameters['status'];
+      final quizFilter = request.uri.queryParameters['quiz'];
       final search = request.uri.queryParameters['search'];
 
-      final mistakes = await DatabaseService.instance.getMistakeRecordsFiltered(
-        subject: subjectFilter,
-        severity: severityFilter,
-        searchQuery: search,
-      );
+      List<Map<String, dynamic>> mistakes;
+      if (statusFilter != null && (statusFilter.toUpperCase() == 'UNRESOLVED' || statusFilter.toUpperCase() == 'PENDING')) {
+        final all = await DatabaseService.instance.getMistakeRecordsFiltered(
+          subject: subjectFilter,
+          severity: severityFilter,
+          quizTitle: quizFilter,
+          searchQuery: search,
+        );
+        mistakes = all.where((m) {
+          final st = (m['status']?.toString() ?? '').toUpperCase();
+          return st != 'RESOLVED' && st != 'COMPLETED' && st != 'DONE';
+        }).toList();
+      } else {
+        mistakes = await DatabaseService.instance.getMistakeRecordsFiltered(
+          subject: subjectFilter,
+          severity: severityFilter,
+          status: statusFilter,
+          quizTitle: quizFilter,
+          searchQuery: search,
+        );
+      }
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode({'mistakes': mistakes}));
       await request.response.close();
@@ -1189,14 +1218,14 @@ class DesktopLogServerService {
       const tokens = [];
 
       // 1. Markdown Images: ![alt](url)
-      escaped = escaped.replace(/!\[(.*?)\]\((https?:\\/\\/[^\\s\\)]+|\\/api\\/images\\/[^\\s\\)]+)\)/g, (match, alt, src) => {
+      escaped = escaped.replace(/!\\[(.*?)\\]\\((https?:\\/\\/[^\\s)]+|\\/api\\/images\\/[^\\s)]+)\\)/g, (match, alt, src) => {
         const idx = tokens.length;
         tokens.push(`<img src="\${src}" class="screenshot-thumb" alt="\${alt || 'Screenshot'}" onclick="window.open('\${src}', '_blank')">`);
         return `___TOKEN_\${idx}___`;
       });
 
       // 2. Markdown Links: [text](url)
-      escaped = escaped.replace(/\[(.*?)\]\((https?:\\/\\/[^\\s\\)]+)\)/g, (match, text, url) => {
+      escaped = escaped.replace(/\\[(.*?)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, (match, text, url) => {
         const idx = tokens.length;
         tokens.push(`<a href="\${url}" target="_blank" rel="noopener noreferrer">\${text} ↗</a>`);
         return `___TOKEN_\${idx}___`;
@@ -1212,7 +1241,7 @@ class DesktopLogServerService {
       // 4. Auto-link bare URLs (not inside markdown links)
       escaped = escaped.replace(/(https?:\\/\\/[^\\s<]+)/g, (match, url) => {
         let trailing = '';
-        while (url.length > 0 && /[\\.,;\\)]\$/.test(url)) {
+        while (url.length > 0 && /[.,;)]\$/.test(url)) {
           trailing = url.slice(-1) + trailing;
           url = url.slice(0, -1);
         }
@@ -1221,10 +1250,10 @@ class DesktopLogServerService {
 
       // 5. Bold & Italic
       escaped = escaped.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>\$1</strong>');
-      escaped = escaped.replace(/(^|[\\s(])\\*([^\\*\\s][^\\*]*?[^\\*\\s]|\\S)\\*(?=[\\s\\).,!?]|\$)/g, '\$1<em>\$2</em>');
+      escaped = escaped.replace(/(^|[\\s(])\\*([^\\*\\s][^\\*]*?[^\\*\\s]|\\S)\\*(?=[\\s).,!?]|\$)/g, '\$1<em>\$2</em>');
 
       // 6. Convert linebreaks
-      escaped = escaped.replace(/\\n/g, '<br>');
+      escaped = escaped.replace(/\\r?\\n/g, '<br>');
 
       // 7. Restore tokens
       escaped = escaped.replace(/___TOKEN_(\\d+)___/g, (match, idx) => {
@@ -1250,6 +1279,42 @@ class DesktopLogServerService {
     }
 
     // Auth & Wi-Fi Shield
+    let heartbeatTimer = null;
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      heartbeatTimer = setInterval(() => {
+        if (!authToken) {
+          stopHeartbeat();
+          showShieldModal();
+          return;
+        }
+        fetch('/api/auth/status', {
+          headers: { 'Authorization': 'Bearer ' + authToken }
+        })
+        .then(r => {
+          if (r.status === 401) {
+            logoutSession();
+            return null;
+          }
+          return r.json();
+        })
+        .then(d => {
+          if (d && !d.authenticated) {
+            logoutSession();
+          }
+        })
+        .catch(() => {});
+      }, 3000);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    }
+
     function checkAuth() {
       if (!authToken) {
         showShieldModal();
@@ -1258,12 +1323,19 @@ class DesktopLogServerService {
       fetch('/api/auth/status', {
         headers: { 'Authorization': 'Bearer ' + authToken }
       })
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401) {
+          logoutSession();
+          return null;
+        }
+        return r.json();
+      })
       .then(d => {
-        if (!d.authenticated) {
-          showShieldModal();
+        if (!d || !d.authenticated) {
+          logoutSession();
         } else {
           hideShieldModal();
+          startHeartbeat();
           initDashboard();
         }
       })
@@ -1280,10 +1352,18 @@ class DesktopLogServerService {
     }
 
     function logoutSession() {
+      const tokenToRevoke = authToken;
       authToken = null;
+      stopHeartbeat();
       localStorage.removeItem('nyro_desktop_token');
       showShieldModal();
       showToast('Dashboard locked. Re-enter phone PIN to unlock.');
+      if (tokenToRevoke) {
+        fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + tokenToRevoke }
+        }).catch(() => {});
+      }
     }
 
     function setupPinInputs() {
@@ -1335,6 +1415,7 @@ class DesktopLogServerService {
           authToken = res.token;
           localStorage.setItem('nyro_desktop_token', authToken);
           hideShieldModal();
+          startHeartbeat();
           showToast('Shield Authenticated! Welcome to NYRO Desktop Studio.');
           initDashboard();
         } else {
@@ -1358,8 +1439,15 @@ class DesktopLogServerService {
       fetch('/api/subjects', {
         headers: { 'Authorization': 'Bearer ' + authToken }
       })
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401) {
+          logoutSession();
+          return null;
+        }
+        return r.json();
+      })
       .then(data => {
+        if (!data) return;
         distinctSubjects = data.subjects || [];
         const dl = document.getElementById('subjectsList');
         const sel = document.getElementById('filterSubject');
@@ -1373,8 +1461,15 @@ class DesktopLogServerService {
       fetch('/api/mistakes', {
         headers: { 'Authorization': 'Bearer ' + authToken }
       })
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401) {
+          logoutSession();
+          return null;
+        }
+        return r.json();
+      })
       .then(data => {
+        if (!data) return;
         allMistakes = data.mistakes || [];
         updateStats();
         applyFilters();
@@ -1402,6 +1497,12 @@ class DesktopLogServerService {
 
     function onSearchChanged() {
       applyFilters();
+    }
+
+    function filterByQuiz(quizTitle) {
+      document.getElementById('searchInput').value = quizTitle;
+      applyFilters();
+      showToast('Filtered traps for quiz: ' + quizTitle);
     }
 
     function applyFilters() {
@@ -1481,7 +1582,7 @@ class DesktopLogServerService {
               <div class="badge-wrap">
                 <span class="subj-pill">\${escapeHtml(m.subject || 'General')}</span>
                 <span class="sev-pill sev-\${sev}">\${sev}</span>
-                \${m.quiz_title ? `<span class="quiz-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>\${escapeHtml(m.quiz_title)}</span>` : ''}
+                \${m.quiz_title ? `<span class="quiz-pill" onclick="filterByQuiz('\${escapeHtml(m.quiz_title)}')" style="cursor:pointer;" title="Click to view all traps for this quiz"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>\${escapeHtml(m.quiz_title)}</span>` : ''}
                 \${isResolved ? `<span class="resolved-pill"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 3px;"><polyline points="20 6 9 17 4 12"/></svg>Resolved</span>` : ''}
               </div>
               \${dateStr ? `<span class="date-str">\${escapeHtml(dateStr)}</span>` : ''}
@@ -1579,11 +1680,18 @@ class DesktopLogServerService {
         },
         body: JSON.stringify({ resolved: resolveState })
       })
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401) {
+          logoutSession();
+          return null;
+        }
+        return r.json();
+      })
       .then(d => {
+        if (!d) return;
         if (d.success) {
           const item = allMistakes.find(m => m.id === id);
-          if (item) item.status = resolveState ? 'RESOLVED' : 'PENDING';
+          if (item) item.status = resolveState ? 'RESOLVED' : 'UNRESOLVED';
           updateStats();
           applyFilters();
           showToast(resolveState ? 'Marked mistake as resolved!' : 'Re-opened mistake for review.');
@@ -1597,8 +1705,15 @@ class DesktopLogServerService {
         method: 'DELETE',
         headers: { 'Authorization': 'Bearer ' + authToken }
       })
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401) {
+          logoutSession();
+          return null;
+        }
+        return r.json();
+      })
       .then(d => {
+        if (!d) return;
         if (d.success) {
           allMistakes = allMistakes.filter(m => m.id !== id);
           updateStats();
@@ -1683,6 +1798,11 @@ class DesktopLogServerService {
           },
           body: JSON.stringify(payload),
         });
+
+        if (res.status === 401) {
+          logoutSession();
+          return;
+        }
 
         const data = await res.json();
         if (res.ok && data.success) {

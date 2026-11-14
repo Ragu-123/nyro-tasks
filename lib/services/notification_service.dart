@@ -1,6 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:tasks/data/database_service.dart';
 
 class NotificationService {
   static final NotificationService instance = NotificationService._internal();
@@ -59,6 +60,19 @@ class NotificationService {
 
     // Request permissions asynchronously without blocking app startup
     requestPermissions().catchError((_) => false);
+
+    // Automatically load alert settings from DatabaseService and schedule daily routine on startup
+    try {
+      final alertSettings = await DatabaseService.instance.getAlertSettings();
+      final morning = (alertSettings['morning_brief'] as int? ?? 1) == 1;
+      final afternoon = (alertSettings['afternoon_session'] as int? ?? 1) == 1;
+      final evening = (alertSettings['evening_review'] as int? ?? 1) == 1;
+      await scheduleDailySessionAlerts(
+        morning: morning,
+        afternoon: afternoon,
+        evening: evening,
+      );
+    } catch (_) {}
   }
 
   void _configureLocalTimeZone() {
@@ -118,19 +132,10 @@ class NotificationService {
     required String title,
     required String body,
     required DateTime scheduledDate,
+    String? repeatDays,
   }) async {
-    var tzScheduled = tz.TZDateTime.from(scheduledDate, tz.local);
-    final now = tz.TZDateTime.now(tz.local);
-
-    // If the scheduled time is slightly in the past (e.g. user set it for current minute),
-    // bump it by 5 seconds so it fires immediately instead of being discarded
-    if (tzScheduled.isBefore(now)) {
-      if (now.difference(tzScheduled).inMinutes <= 5) {
-        tzScheduled = now.add(const Duration(seconds: 5));
-      } else {
-        return; // Skip past dates
-      }
-    }
+    // Clear any previous notification triggers for this reminder ID
+    await cancelReminder(id);
 
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       studyChannelId,
@@ -147,29 +152,134 @@ class NotificationService {
       android: androidDetails,
     );
 
-    try {
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        id,
-        title,
-        body,
-        tzScheduled,
-        platformDetails,
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
+    final now = tz.TZDateTime.now(tz.local);
+
+    final parsedDays = (repeatDays != null && repeatDays.trim().isNotEmpty)
+        ? repeatDays
+            .split(',')
+            .map((s) => int.tryParse(s.trim()))
+            .whereType<int>()
+            .where((d) => d >= 0 && d <= 6)
+            .toSet()
+        : <int>{};
+
+    if (parsedDays.isEmpty) {
+      // One-time reminder
+      var tzScheduled = tz.TZDateTime.from(scheduledDate, tz.local);
+      if (tzScheduled.isBefore(now)) {
+        if (now.difference(tzScheduled).inMinutes <= 5) {
+          tzScheduled = now.add(const Duration(seconds: 5));
+        } else {
+          return; // Skip past dates
+        }
+      }
+
+      try {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          id,
+          title,
+          body,
+          tzScheduled,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+        );
+      } catch (_) {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          id,
+          title,
+          body,
+          tzScheduled,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+        );
+      }
+    } else if (parsedDays.length == 7) {
+      // Daily recurring routine (all 7 days selected)
+      var nextTime = tz.TZDateTime(
+        tz.local,
+        now.year,
+        now.month,
+        now.day,
+        scheduledDate.hour,
+        scheduledDate.minute,
       );
-    } catch (e) {
-      // Fallback if exact alarms permission is not granted on Android 12+
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        id,
-        title,
-        body,
-        tzScheduled,
-        platformDetails,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-      );
+      if (nextTime.isBefore(now)) {
+        nextTime = nextTime.add(const Duration(days: 1));
+      }
+
+      try {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          id,
+          title,
+          body,
+          nextTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      } catch (_) {
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          id,
+          title,
+          body,
+          nextTime,
+          platformDetails,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      }
+    } else {
+      // Specific days of week routine (e.g. Mon, Wed, Fri)
+      for (final dayIndex in parsedDays) {
+        // dayIndex: 0=Sun -> 7 in DateTime.weekday; 1=Mon -> 1, ..., 6=Sat -> 6
+        final targetWeekday = (dayIndex == 0) ? 7 : dayIndex;
+        var targetDate = tz.TZDateTime(
+          tz.local,
+          now.year,
+          now.month,
+          now.day,
+          scheduledDate.hour,
+          scheduledDate.minute,
+        );
+        while (targetDate.weekday != targetWeekday || targetDate.isBefore(now)) {
+          targetDate = targetDate.add(const Duration(days: 1));
+        }
+
+        final notifId = id * 10 + dayIndex;
+        try {
+          await flutterLocalNotificationsPlugin.zonedSchedule(
+            notifId,
+            title,
+            body,
+            targetDate,
+            platformDetails,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+          );
+        } catch (_) {
+          await flutterLocalNotificationsPlugin.zonedSchedule(
+            notifId,
+            title,
+            body,
+            targetDate,
+            platformDetails,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+          );
+        }
+      }
     }
   }
 
@@ -291,8 +401,17 @@ class NotificationService {
     }
   }
 
-  Future<void> cancelNotification(int id) async {
+  Future<void> cancelReminder(int id) async {
     await flutterLocalNotificationsPlugin.cancel(id);
+    for (int d = 0; d < 7; d++) {
+      try {
+        await flutterLocalNotificationsPlugin.cancel(id * 10 + d);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> cancelNotification(int id) async {
+    await cancelReminder(id);
   }
 
   Future<void> cancelAll() async {

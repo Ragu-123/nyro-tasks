@@ -90,7 +90,9 @@ class DatabaseService {
         revisit_alerts BOOLEAN, 
         backlog_shield BOOLEAN, 
         shield_time VARCHAR, 
-        last_morning_brief_date VARCHAR
+        last_morning_brief_date VARCHAR,
+        afternoon_session BOOLEAN DEFAULT 1,
+        evening_review BOOLEAN DEFAULT 1
       )
     ''');
 
@@ -99,6 +101,7 @@ class DatabaseService {
         id INTEGER PRIMARY KEY AUTOINCREMENT, 
         text VARCHAR NOT NULL, 
         remind_at DATETIME NOT NULL, 
+        repeat_days TEXT,
         status VARCHAR, 
         created_at DATETIME, 
         anchor_id INTEGER, 
@@ -291,11 +294,30 @@ class DatabaseService {
     ''');
 
     await db.execute('''
-      INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time)
-      VALUES (1, 1, '05:00', 1, 1, '21:30')
+      INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time, afternoon_session, evening_review)
+      VALUES (1, 1, '05:00', 1, 1, '21:30', 1, 1)
     ''');
 
     // Defensive schema migrations for existing databases
+    try {
+      final aCols = await db.rawQuery('PRAGMA table_info(alert_settings)');
+      final aColNames = aCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
+      if (!aColNames.contains('afternoon_session')) {
+        await db.execute('ALTER TABLE alert_settings ADD COLUMN afternoon_session BOOLEAN DEFAULT 1');
+      }
+      if (!aColNames.contains('evening_review')) {
+        await db.execute('ALTER TABLE alert_settings ADD COLUMN evening_review BOOLEAN DEFAULT 1');
+      }
+    } catch (_) {}
+
+    try {
+      final rCols = await db.rawQuery('PRAGMA table_info(custom_reminders)');
+      final rColNames = rCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
+      if (!rColNames.contains('repeat_days')) {
+        await db.execute('ALTER TABLE custom_reminders ADD COLUMN repeat_days TEXT');
+      }
+    } catch (_) {}
+
     try {
       final mCols = await db.rawQuery('PRAGMA table_info(mistake_records)');
       final colNames = mCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
@@ -819,16 +841,24 @@ class DatabaseService {
       args.add('%$subject%');
     }
     if (status != null && status != 'ALL' && status.isNotEmpty) {
-      sql += ' AND upper(status) = upper(?)';
-      args.add(status);
+      if (status.toUpperCase() == 'UNRESOLVED' || status.toUpperCase() == 'PENDING') {
+        sql += " AND (status IS NULL OR (upper(status) != 'RESOLVED' AND upper(status) != 'COMPLETED' AND upper(status) != 'DONE'))";
+      } else {
+        sql += ' AND upper(status) = upper(?)';
+        args.add(status);
+      }
     }
     if (severity != null && severity != 'ALL' && severity.isNotEmpty) {
       sql += ' AND upper(severity) = upper(?)';
       args.add(severity);
     }
-    if (quizTitle != null && quizTitle.isNotEmpty) {
-      sql += ' AND lower(quiz_title) LIKE lower(?)';
-      args.add('%$quizTitle%');
+    if (quizTitle != null && quizTitle.trim().isNotEmpty) {
+      final qTrim = quizTitle.trim();
+      sql += ''' AND (
+        lower(quiz_title) LIKE lower(?)
+        OR (trim(quiz_title) != '' AND lower(?) LIKE '%' || lower(trim(quiz_title)) || '%')
+      )''';
+      args.addAll(['%$qTrim%', qTrim]);
     }
     if (searchQuery != null && searchQuery.trim().isNotEmpty) {
       final q = searchQuery.trim();
@@ -986,12 +1016,23 @@ class DatabaseService {
     return await db.rawQuery(sql, args);
   }
 
-  Future<int> getMistakeCountForQuiz(String quizTitle) async {
+  Future<int> getMistakeCountForQuiz(String quizTitle, {String? subject}) async {
     final db = await database;
-    final res = await db.rawQuery(
-      'SELECT COUNT(*) as cnt FROM mistake_records WHERE lower(quiz_title) LIKE lower(?)',
-      ['%$quizTitle%'],
-    );
+    final qTrim = quizTitle.trim();
+    String sql = '''
+      SELECT COUNT(*) as cnt FROM mistake_records 
+      WHERE (
+        lower(quiz_title) LIKE lower(?)
+        OR (trim(quiz_title) != '' AND lower(?) LIKE '%' || lower(trim(quiz_title)) || '%')
+      )
+    ''';
+    List<dynamic> args = ['%$qTrim%', qTrim];
+    if (subject != null && subject.trim().isNotEmpty && subject != 'All Subjects') {
+      final sTrim = subject.trim();
+      sql += " AND (lower(subject) LIKE lower(?) OR lower(?) LIKE '%' || lower(trim(subject)) || '%')";
+      args.addAll(['%$sTrim%', sTrim]);
+    }
+    final res = await db.rawQuery(sql, args);
     return (res.first['cnt'] as num?)?.toInt() ?? 0;
   }
 
@@ -1025,6 +1066,8 @@ class DatabaseService {
     return {
       'morning_brief': 1,
       'morning_brief_time': '05:00',
+      'afternoon_session': 1,
+      'evening_review': 1,
       'revisit_alerts': 1,
       'backlog_shield': 1,
       'shield_time': '21:30',
@@ -1035,6 +1078,8 @@ class DatabaseService {
     required bool morningBrief,
     required bool revisitAlerts,
     required bool backlogShield,
+    bool? afternoonSession,
+    bool? eveningReview,
     String? morningBriefTime,
     String? shieldTime,
   }) async {
@@ -1044,10 +1089,41 @@ class DatabaseService {
       'revisit_alerts': revisitAlerts ? 1 : 0,
       'backlog_shield': backlogShield ? 1 : 0,
     };
+    if (afternoonSession != null) updateData['afternoon_session'] = afternoonSession ? 1 : 0;
+    if (eveningReview != null) updateData['evening_review'] = eveningReview ? 1 : 0;
     if (morningBriefTime != null) updateData['morning_brief_time'] = morningBriefTime;
     if (shieldTime != null) updateData['shield_time'] = shieldTime;
 
     await db.update('alert_settings', updateData, where: 'id = ?', whereArgs: [1]);
+  }
+
+  Future<void> setDailyRoutineSettings({
+    required bool morning,
+    required bool afternoon,
+    required bool evening,
+  }) async {
+    final db = await database;
+    await db.update(
+      'alert_settings',
+      {
+        'morning_brief': morning ? 1 : 0,
+        'afternoon_session': afternoon ? 1 : 0,
+        'evening_review': evening ? 1 : 0,
+      },
+      where: 'id = ?',
+      whereArgs: [1],
+    );
+  }
+
+  Future<int> autoCompleteExpiredReminders() async {
+    final db = await database;
+    final nowIso = DateTime.now().toIso8601String();
+    return await db.update(
+      'custom_reminders',
+      {'status': 'COMPLETED'},
+      where: 'remind_at < ? AND (status IS NULL OR status != ?) AND (repeat_days IS NULL OR trim(repeat_days) = ?)',
+      whereArgs: [nowIso, 'COMPLETED', ''],
+    );
   }
 
   Future<List<Map<String, dynamic>>> getCustomReminders() async {
@@ -1055,11 +1131,12 @@ class DatabaseService {
     return await db.query('custom_reminders', orderBy: 'remind_at ASC');
   }
 
-  Future<int> addCustomReminder(String text, DateTime remindAt) async {
+  Future<int> addCustomReminder(String text, DateTime remindAt, {String? repeatDays}) async {
     final db = await database;
     return await db.insert('custom_reminders', {
       'text': text,
       'remind_at': remindAt.toIso8601String(),
+      'repeat_days': (repeatDays != null && repeatDays.trim().isNotEmpty) ? repeatDays.trim() : null,
       'status': 'PENDING',
       'created_at': DateTime.now().toIso8601String(),
     });
@@ -1069,6 +1146,7 @@ class DatabaseService {
     required int id,
     required String text,
     required DateTime remindAt,
+    String? repeatDays,
   }) async {
     final db = await database;
     await db.update(
@@ -1076,6 +1154,7 @@ class DatabaseService {
       {
         'text': text,
         'remind_at': remindAt.toIso8601String(),
+        'repeat_days': (repeatDays != null && repeatDays.trim().isNotEmpty) ? repeatDays.trim() : null,
       },
       where: 'id = ?',
       whereArgs: [id],
