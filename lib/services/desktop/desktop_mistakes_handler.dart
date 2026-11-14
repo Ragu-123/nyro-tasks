@@ -66,12 +66,18 @@ class DesktopMistakesHandler {
 
       final subject = json['subject']?.toString().trim();
       final topic = json['topic']?.toString().trim();
-      final reason = json['reason']?.toString().trim();
+      final reason = (json['mistake_reason'] ?? json['reason'])?.toString().trim();
+      final keyTakeaway = (json['key_takeaway'] ?? json['takeaway'])?.toString().trim();
+      final questionText = (json['question_text'] ?? json['question'])?.toString().trim();
+      final wrongAnswer = (json['wrong_answer'] ?? json['wrong'])?.toString().trim();
+      final correctAnswer = (json['correct_answer'] ?? json['correct'])?.toString().trim();
+      final quizTitle = (json['quiz_title'] ?? json['quiz'])?.toString().trim();
+      final severity = json['severity']?.toString().trim() ?? 'MEDIUM';
 
-      if (subject == null || subject.isEmpty || topic == null || topic.isEmpty || reason == null || reason.isEmpty) {
+      if (subject == null || subject.isEmpty || topic == null || topic.isEmpty) {
         request.response.statusCode = HttpStatus.badRequest;
         request.response.headers.contentType = ContentType.json;
-        request.response.write(jsonEncode({'error': 'subject, topic, and reason are required fields'}));
+        request.response.write(jsonEncode({'error': 'subject and topic are required fields'}));
         await request.response.close();
         return;
       }
@@ -80,11 +86,12 @@ class DesktopMistakesHandler {
         subject: subject,
         topic: topic,
         reason: reason,
-        severity: json['severity']?.toString().trim() ?? 'MEDIUM',
-        quizTitle: json['quiz_title']?.toString().trim(),
-        questionText: json['question_text']?.toString().trim(),
-        wrongAnswer: json['wrong_answer']?.toString().trim(),
-        correctAnswer: json['correct_answer']?.toString().trim(),
+        severity: severity,
+        quizTitle: quizTitle,
+        questionText: questionText,
+        wrongAnswer: wrongAnswer,
+        correctAnswer: correctAnswer,
+        keyTakeaway: keyTakeaway,
       );
 
       request.response.statusCode = HttpStatus.created;

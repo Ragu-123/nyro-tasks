@@ -243,22 +243,136 @@ class DesktopWebTemplate {
       font-family: inherit;
     }
 
-    /* Mistakes Table */
-    .mistakes-table {
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--surface);
-      border-radius: var(--card-radius);
-      overflow: hidden;
-      border: 1px solid var(--border);
+    /* Mistakes Cards */
+    .mistakes-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
       margin-top: 16px;
     }
-    .mistakes-table th, .mistakes-table td {
-      padding: 12px 16px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
+    .mistake-card {
+      border: 1px solid var(--border);
+      border-radius: var(--card-radius);
+      padding: 18px 20px;
+      background: var(--surface);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-    .mistakes-table th { background: var(--background); font-weight: 600; font-size: 12px; color: var(--text-secondary); }
+    .mistake-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .mistake-topic {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .mistake-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .badge-subject {
+      background: #e8f0fe;
+      color: var(--primary);
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-severity-low {
+      background: #e6f4ea;
+      color: #137333;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-severity-medium {
+      background: #fef7e0;
+      color: #b06000;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-severity-high {
+      background: #fce8e6;
+      color: #c5221f;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-quiz {
+      background: #f1f3f4;
+      color: #5f6368;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .mistake-section {
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .mistake-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .mistake-question {
+      background: var(--background);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      white-space: pre-wrap;
+    }
+    .answers-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 768px) {
+      .answers-row { grid-template-columns: 1fr; }
+    }
+    .box-wrong {
+      background: #fdf2f2;
+      border-left: 3px solid var(--danger);
+      color: #991b1b;
+    }
+    .box-correct {
+      background: #f0fdf4;
+      border-left: 3px solid var(--success);
+      color: #166534;
+    }
+    .box-reason {
+      background: #fffbeb;
+      border-left: 3px solid var(--warning);
+      color: #92400e;
+    }
+    .box-takeaway {
+      background: #eff6ff;
+      border-left: 3px solid var(--primary);
+      color: #1e40af;
+    }
+    .mistake-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 4px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
     .badge {
       display: inline-block;
       padding: 2px 8px;
@@ -329,22 +443,14 @@ class DesktopWebTemplate {
 
     <!-- Tab 2: Mistakes Notebook -->
     <div id="tab-mistakes" class="tab-content">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <input type="text" id="mistake-search" class="search-input" placeholder="Search mistakes..." oninput="filterMistakes()" />
-        <button class="btn btn-primary" onclick="loadMistakes()">Refresh</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <input type="text" id="mistake-search" class="search-input" placeholder="Search by subject, topic, question, reason..." oninput="filterMistakes()" />
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-primary" onclick="openCreateMistakeModal()">+ Log Mistake</button>
+          <button class="btn btn-outline" onclick="loadMistakes()">Refresh</button>
+        </div>
       </div>
-      <table class="mistakes-table">
-        <thead>
-          <tr>
-            <th>Subject</th>
-            <th>Topic</th>
-            <th>Reason / Trap</th>
-            <th>Severity</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="mistakes-body"></tbody>
-      </table>
+      <div id="mistakes-container" class="mistakes-grid"></div>
     </div>
 
     <!-- Tab 3: Status -->
@@ -399,6 +505,64 @@ class DesktopWebTemplate {
     </div>
   </div>
 
+  <!-- Create Mistake Modal -->
+  <div id="mistake-modal" class="modal">
+    <div class="modal-box" style="max-width: 620px; max-height: 90vh; overflow-y: auto;">
+      <h3 style="margin-bottom: 16px;">Log New Blunder / Mistake</h3>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label>Subject *</label>
+          <input type="text" id="modal-mistake-subject" list="subjects-datalist" class="form-control" placeholder="e.g. Linear Algebra, DBMS" />
+          <datalist id="subjects-datalist"></datalist>
+        </div>
+        <div class="form-group">
+          <label>Topic *</label>
+          <input type="text" id="modal-mistake-topic" class="form-control" placeholder="e.g. Eigenvalues & Determinants" />
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label>Severity</label>
+          <select id="modal-mistake-severity" class="form-control">
+            <option value="MEDIUM" selected>MEDIUM</option>
+            <option value="LOW">LOW</option>
+            <option value="HIGH">HIGH</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Linked Quiz (Optional)</label>
+          <input type="text" id="modal-mistake-quiz" class="form-control" placeholder="e.g. Weekly Quiz 1" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Question / Source Text</label>
+        <textarea id="modal-mistake-question" class="form-control" rows="3" placeholder="Enter problem statement or context..."></textarea>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label>Wrong Answer / Trap</label>
+          <textarea id="modal-mistake-wrong" class="form-control" rows="2" placeholder="What you marked or thought..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Correct Answer</label>
+          <textarea id="modal-mistake-correct" class="form-control" rows="2" placeholder="The actual correct solution..."></textarea>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Why It Went Wrong (Mistake Reason)</label>
+        <textarea id="modal-mistake-reason" class="form-control" rows="2" placeholder="Conceptual gap, calculation slip, missed edge case..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Key Takeaway & Golden Rule</label>
+        <textarea id="modal-mistake-takeaway" class="form-control" rows="2" placeholder="Never assume symmetric matrix without checking..."></textarea>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-outline" onclick="closeCreateMistakeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitCreateMistake()">Save Mistake</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let authToken = localStorage.getItem('nyro_token') || '';
     let notesData = [];
@@ -418,6 +582,7 @@ class DesktopWebTemplate {
           document.getElementById('auth-shield').style.display = 'none';
           loadNotes();
           loadMistakes();
+          loadSubjects();
         } else {
           document.getElementById('auth-shield').style.display = 'flex';
         }
@@ -448,6 +613,7 @@ class DesktopWebTemplate {
           document.getElementById('auth-shield').style.display = 'none';
           loadNotes();
           loadMistakes();
+          loadSubjects();
         } else {
           errBox.innerText = data.error || 'Authentication failed.';
           errBox.style.display = 'block';
@@ -542,7 +708,7 @@ class DesktopWebTemplate {
         }
 
         contentHtml += '<div class="keep-card-actions">';
-        contentHtml += '<button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" onclick="deleteNote(\\'' + n.id + '\\')">Delete</button>';
+        contentHtml += '<button class="btn btn-outline" style="padding: 4px 8px; font-size: 11px;" onclick="deleteNote(\' + n.id + \')">Delete</button>';
         contentHtml += '</div>';
 
         card.innerHTML = contentHtml;
@@ -617,6 +783,118 @@ class DesktopWebTemplate {
       } catch (_) {}
     }
 
+    function openCreateMistakeModal() {
+      document.getElementById('modal-mistake-subject').value = '';
+      document.getElementById('modal-mistake-topic').value = '';
+      document.getElementById('modal-mistake-severity').value = 'MEDIUM';
+      document.getElementById('modal-mistake-quiz').value = '';
+      document.getElementById('modal-mistake-question').value = '';
+      document.getElementById('modal-mistake-wrong').value = '';
+      document.getElementById('modal-mistake-correct').value = '';
+      document.getElementById('modal-mistake-reason').value = '';
+      document.getElementById('modal-mistake-takeaway').value = '';
+      document.getElementById('mistake-modal').classList.add('active');
+    }
+
+    function closeCreateMistakeModal() {
+      document.getElementById('mistake-modal').classList.remove('active');
+    }
+
+    async function loadSubjects() {
+      try {
+        const res = await fetch('/api/subjects', {
+          headers: { 'Authorization': 'Bearer ' + authToken }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const list = document.getElementById('subjects-datalist');
+          if (list && data.subjects) {
+            list.innerHTML = '';
+            data.subjects.forEach(function(s) {
+              const opt = document.createElement('option');
+              opt.value = s;
+              list.appendChild(opt);
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    async function submitCreateMistake() {
+      const subject = document.getElementById('modal-mistake-subject').value.trim();
+      const topic = document.getElementById('modal-mistake-topic').value.trim();
+      const severity = document.getElementById('modal-mistake-severity').value;
+      const quiz = document.getElementById('modal-mistake-quiz').value.trim();
+      const question = document.getElementById('modal-mistake-question').value.trim();
+      const wrong = document.getElementById('modal-mistake-wrong').value.trim();
+      const correct = document.getElementById('modal-mistake-correct').value.trim();
+      const reason = document.getElementById('modal-mistake-reason').value.trim();
+      const takeaway = document.getElementById('modal-mistake-takeaway').value.trim();
+
+      if (!subject || !topic) {
+        alert('Please provide both Subject and Topic.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/mistakes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + authToken
+          },
+          body: JSON.stringify({
+            subject: subject,
+            topic: topic,
+            severity: severity,
+            quiz_title: quiz,
+            question_text: question,
+            wrong_answer: wrong,
+            correct_answer: correct,
+            mistake_reason: reason,
+            key_takeaway: takeaway
+          })
+        });
+        if (res.status === 401) { lockStudio(); return; }
+        if (res.ok) {
+          closeCreateMistakeModal();
+          loadMistakes();
+        } else {
+          const err = await res.json().catch(function() { return {}; });
+          alert(err.error || 'Failed to save mistake.');
+        }
+      } catch (_) {
+        alert('Failed to connect to server.');
+      }
+    }
+
+    async function toggleMistake(id, newResolved) {
+      try {
+        const res = await fetch('/api/mistakes/' + id + '/resolve', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + authToken
+          },
+          body: JSON.stringify({ resolved: newResolved })
+        });
+        if (res.status === 401) { lockStudio(); return; }
+        loadMistakes();
+      } catch (_) {}
+    }
+
+    async function deleteMistake(id) {
+      if (!confirm('Are you sure you want to delete this mistake record?')) return;
+      try {
+        const res = await fetch('/api/mistakes/' + id, {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + authToken }
+        });
+        if (res.status === 401) { lockStudio(); return; }
+        loadMistakes();
+      } catch (_) {}
+    }
+
     async function loadMistakes() {
       try {
         const res = await fetch('/api/mistakes', {
@@ -624,28 +902,104 @@ class DesktopWebTemplate {
         });
         if (res.status === 401) { lockStudio(); return; }
         const data = await res.json();
-        mistakesData = data.records || [];
+        mistakesData = data.mistakes || data.records || [];
         renderMistakes(mistakesData);
       } catch (_) {}
     }
 
     function renderMistakes(records) {
-      const b = document.getElementById('mistakes-body');
-      b.innerHTML = '';
+      const c = document.getElementById('mistakes-container');
+      c.innerHTML = '';
       if (!records.length) {
-        b.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary); padding: 32px;">No mistake records found.</td></tr>';
+        c.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 48px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--card-radius);">No mistake records found. Click + Log Mistake to create one.</div>';
         return;
       }
-      records.forEach(r => {
-        const tr = document.createElement('tr');
+      records.forEach(function(r) {
+        const card = document.createElement('div');
+        card.className = 'mistake-card';
+
         const isResolved = (r.status || '').toUpperCase() === 'RESOLVED';
-        tr.innerHTML = '<td><strong>' + escapeHtml(r.subject || 'General') + '</strong></td>' +
-                       '<td>' + escapeHtml(r.topic || '') + '</td>' +
-                       '<td>' + escapeHtml(r.reason || '') + '</td>' +
-                       '<td>' + escapeHtml(r.severity || 'MEDIUM') + '</td>' +
-                       '<td><span class="badge ' + (isResolved ? 'badge-resolved' : 'badge-unresolved') + '">' +
-                       (isResolved ? 'RESOLVED' : 'UNRESOLVED') + '</span></td>';
-        b.appendChild(tr);
+        const severity = (r.severity || 'MEDIUM').toUpperCase();
+        let sevClass = 'badge-severity-medium';
+        if (severity === 'LOW') sevClass = 'badge-severity-low';
+        else if (severity === 'HIGH' || severity === 'CRITICAL') sevClass = 'badge-severity-high';
+
+        let html = '';
+
+        // Header with Topic & Badges
+        html += '<div class="mistake-header">';
+        html += '  <div class="mistake-topic">' + escapeHtml(r.topic || 'Untitled Mistake') + '</div>';
+        html += '  <div class="mistake-badges">';
+        if (r.subject) {
+          html += '    <span class="badge-subject">' + escapeHtml(r.subject) + '</span>';
+        }
+        html += '    <span class="' + sevClass + '">' + escapeHtml(severity) + '</span>';
+        if (r.quiz_title && r.quiz_title.trim().length > 0) {
+          html += '    <span class="badge-quiz">' + escapeHtml(r.quiz_title) + '</span>';
+        }
+        html += '  </div>';
+        html += '</div>';
+
+        // Question / Source Text
+        const question = r.question_text || '';
+        if (question && question.trim().length > 0) {
+          html += '<div class="mistake-section mistake-question">';
+          html += '  <div class="mistake-section-title" style="color: var(--text-secondary);">Question / Source Text</div>';
+          html += '  <div>' + escapeHtml(question) + '</div>';
+          html += '</div>';
+        }
+
+        // Side-by-side or stacked Wrong Answer & Correct Answer
+        const wrong = r.wrong_answer || '';
+        const correct = r.correct_answer || '';
+        if (wrong.trim().length > 0 || correct.trim().length > 0) {
+          html += '<div class="answers-row">';
+          if (wrong.trim().length > 0) {
+            html += '<div class="mistake-section box-wrong">';
+            html += '  <div class="mistake-section-title">Wrong Answer / Trap</div>';
+            html += '  <div>' + escapeHtml(wrong) + '</div>';
+            html += '</div>';
+          }
+          if (correct.trim().length > 0) {
+            html += '<div class="mistake-section box-correct">';
+            html += '  <div class="mistake-section-title">Correct Answer</div>';
+            html += '  <div>' + escapeHtml(correct) + '</div>';
+            html += '</div>';
+          }
+          html += '</div>';
+        }
+
+        // Why It Went Wrong (mistake_reason or reason)
+        const reason = r.mistake_reason || r.reason || '';
+        if (reason && reason.trim().length > 0) {
+          html += '<div class="mistake-section box-reason">';
+          html += '  <div class="mistake-section-title">Why It Went Wrong</div>';
+          html += '  <div>' + escapeHtml(reason) + '</div>';
+          html += '</div>';
+        }
+
+        // Key Takeaway & Golden Rule
+        const takeaway = r.key_takeaway || r.takeaway || '';
+        if (takeaway && takeaway.trim().length > 0) {
+          html += '<div class="mistake-section box-takeaway">';
+          html += '  <div class="mistake-section-title">Key Takeaway & Golden Rule</div>';
+          html += '  <div>' + escapeHtml(takeaway) + '</div>';
+          html += '</div>';
+        }
+
+        // Footer with Status Pill and Action Buttons
+        html += '<div class="mistake-footer">';
+        html += '  <div>';
+        html += '    <span class="badge ' + (isResolved ? 'badge-resolved' : 'badge-unresolved') + '">' + (isResolved ? 'RESOLVED' : 'UNRESOLVED') + '</span>';
+        html += '  </div>';
+        html += '  <div style="display: flex; gap: 8px;">';
+        html += '    <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px;" onclick="toggleMistake(' + r.id + ', ' + (!isResolved) + ')">' + (isResolved ? 'Mark Unresolved' : 'Mark Resolved') + '</button>';
+        html += '    <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11px; color: var(--danger); border-color: #fce8e6;" onclick="deleteMistake(' + r.id + ')">Delete</button>';
+        html += '  </div>';
+        html += '</div>';
+
+        card.innerHTML = html;
+        c.appendChild(card);
       });
     }
 
@@ -655,10 +1009,23 @@ class DesktopWebTemplate {
         renderMistakes(mistakesData);
         return;
       }
-      const filtered = mistakesData.filter(r => {
-        return (r.subject || '').toLowerCase().includes(q) ||
-               (r.topic || '').toLowerCase().includes(q) ||
-               (r.reason || '').toLowerCase().includes(q);
+      const filtered = mistakesData.filter(function(r) {
+        const subject = (r.subject || '').toLowerCase();
+        const topic = (r.topic || '').toLowerCase();
+        const question = (r.question_text || '').toLowerCase();
+        const reason = (r.mistake_reason || r.reason || '').toLowerCase();
+        const wrong = (r.wrong_answer || '').toLowerCase();
+        const correct = (r.correct_answer || '').toLowerCase();
+        const takeaway = (r.key_takeaway || r.takeaway || '').toLowerCase();
+        const quiz = (r.quiz_title || '').toLowerCase();
+        return subject.indexOf(q) !== -1 ||
+               topic.indexOf(q) !== -1 ||
+               question.indexOf(q) !== -1 ||
+               reason.indexOf(q) !== -1 ||
+               wrong.indexOf(q) !== -1 ||
+               correct.indexOf(q) !== -1 ||
+               takeaway.indexOf(q) !== -1 ||
+               quiz.indexOf(q) !== -1;
       });
       renderMistakes(filtered);
     }

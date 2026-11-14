@@ -109,17 +109,17 @@ class _KeepPageState extends State<KeepPage> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: widget.onBackToTasks != null
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_rounded, color: googleTextPrimary),
-                tooltip: 'Back to Tasks',
-                onPressed: widget.onBackToTasks,
-              )
-            : IconButton(
-                icon: const Icon(Icons.menu_rounded, color: googleTextPrimary),
-                tooltip: 'Open Drawer',
-                onPressed: () => Scaffold.of(context).openDrawer(),
-              ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: googleTextPrimary),
+          tooltip: 'Back to Tasks',
+          onPressed: () {
+            if (widget.onBackToTasks != null) {
+              widget.onBackToTasks!();
+            } else {
+              Navigator.maybePop(context);
+            }
+          },
+        ),
         title: Row(
           children: [
             Container(

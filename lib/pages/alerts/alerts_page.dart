@@ -25,11 +25,6 @@ class _AlertsPageState extends State<AlertsPage> {
   bool _isLoading = true;
   bool _isCompletedExpanded = false;
 
-  // Daily study routine settings
-  bool _morningEnabled = true;
-  bool _afternoonEnabled = true;
-  bool _eveningEnabled = true;
-
   @override
   void initState() {
     super.initState();
@@ -45,18 +40,9 @@ class _AlertsPageState extends State<AlertsPage> {
       // 2. Load latest custom reminders
       final reminders = await DatabaseService.instance.getCustomReminders();
 
-      // 3. Load daily routine settings
-      final settings = await DatabaseService.instance.getAlertSettings();
-      final morning = (settings['morning_brief'] as int? ?? 1) == 1;
-      final afternoon = (settings['afternoon_session'] as int? ?? 1) == 1;
-      final evening = (settings['evening_review'] as int? ?? 1) == 1;
-
       if (mounted) {
         setState(() {
           _reminders = reminders;
-          _morningEnabled = morning;
-          _afternoonEnabled = afternoon;
-          _eveningEnabled = evening;
           _isLoading = false;
         });
       }
@@ -67,48 +53,6 @@ class _AlertsPageState extends State<AlertsPage> {
           _isLoading = false;
         });
       }
-    }
-  }
-
-  Future<void> _toggleRoutine({
-    bool? morning,
-    bool? afternoon,
-    bool? evening,
-    required String title,
-  }) async {
-    final newMorning = morning ?? _morningEnabled;
-    final newAfternoon = afternoon ?? _afternoonEnabled;
-    final newEvening = evening ?? _eveningEnabled;
-
-    setState(() {
-      _morningEnabled = newMorning;
-      _afternoonEnabled = newAfternoon;
-      _eveningEnabled = newEvening;
-    });
-
-    await DatabaseService.instance.setDailyRoutineSettings(
-      morning: newMorning,
-      afternoon: newAfternoon,
-      evening: newEvening,
-    );
-
-    await NotificationService.instance.scheduleDailySessionAlerts(
-      morning: newMorning,
-      afternoon: newAfternoon,
-      evening: newEvening,
-    );
-
-    final bool isEnabled = (morning ?? afternoon ?? evening) ?? false;
-    if (mounted) {
-      TopBanner.show(
-        context,
-        title: isEnabled ? '$title Enabled' : '$title Disabled',
-        message: isEnabled
-            ? 'Scheduled recurring notification active.'
-            : 'Notification turned off.',
-        icon: isEnabled ? Icons.notifications_active_rounded : Icons.notifications_off_rounded,
-        color: isEnabled ? googleBlue : googleTextSecondary,
-      );
     }
   }
 
@@ -287,13 +231,10 @@ class _AlertsPageState extends State<AlertsPage> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 90),
               children: [
-                // 1. Daily Study Routine Section
-                _buildDailyRoutineSection(),
-
-                // 2. Custom Alarms Header
+                // 1. Custom Alarms Header
                 _buildCustomAlarmsHeader(pending.length),
 
-                // 3. Custom Alarms List or Empty Indicator
+                // 2. Custom Alarms List or Empty Indicator
                 if (pending.isNotEmpty) ...[
                   ...pending.map((r) => _buildAlarmCard(r, isCompleted: false)),
                 ] else if (completed.isNotEmpty) ...[
@@ -302,7 +243,7 @@ class _AlertsPageState extends State<AlertsPage> {
                   _buildEmptyCustomAlarms(),
                 ],
 
-                // 4. Completed Section Accordion
+                // 3. Completed Section Accordion
                 if (completed.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   InkWell(
@@ -341,173 +282,6 @@ class _AlertsPageState extends State<AlertsPage> {
         icon: const Icon(Icons.add, size: 20),
         label: const Text('Add Alarm / Reminder', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
         onPressed: _openNewAlarmEditor,
-      ),
-    );
-  }
-
-  Widget _buildDailyRoutineSection() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: googleHairline),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: googleBlue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.schedule_rounded, color: googleBlue, size: 20),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Daily Study Routine',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: googleTextPrimary,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Automated daily alerts for structured GATE prep',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: googleTextSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, thickness: 1, color: googleHairline),
-          _buildRoutineRow(
-            icon: Icons.wb_sunny_outlined,
-            iconColor: const Color(0xFFE37400),
-            title: 'Morning Brief',
-            time: '05:00 AM',
-            description: 'Target lectures and Ebbinghaus recall items',
-            enabled: _morningEnabled,
-            onChanged: (val) => _toggleRoutine(morning: val, title: 'Morning Brief'),
-          ),
-          const Divider(height: 1, thickness: 1, color: googleHairline),
-          _buildRoutineRow(
-            icon: Icons.light_mode_outlined,
-            iconColor: const Color(0xFF1A73E8),
-            title: 'Afternoon Session',
-            time: '01:30 PM',
-            description: 'Midday focus block and aptitude practice',
-            enabled: _afternoonEnabled,
-            onChanged: (val) => _toggleRoutine(afternoon: val, title: 'Afternoon Session'),
-          ),
-          const Divider(height: 1, thickness: 1, color: googleHairline),
-          _buildRoutineRow(
-            icon: Icons.nightlight_outlined,
-            iconColor: const Color(0xFF5F6368),
-            title: 'Evening Review',
-            time: '07:00 PM',
-            description: 'Daily progress review and recall checkpoints',
-            enabled: _eveningEnabled,
-            onChanged: (val) => _toggleRoutine(evening: val, title: 'Evening Review'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoutineRow({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String time,
-    required String description,
-    required bool enabled,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: iconColor, size: 18),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: googleTextPrimary,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: enabled ? googleBlue.withOpacity(0.08) : const Color(0xFFF1F3F4),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        time,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: enabled ? googleBlue : googleTextSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  description,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: googleTextSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: enabled,
-            activeColor: googleBlue,
-            onChanged: onChanged,
-          ),
-        ],
       ),
     );
   }
