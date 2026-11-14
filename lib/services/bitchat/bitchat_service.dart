@@ -66,6 +66,7 @@ class BitchatService {
   String get currentGeohash => _currentGeohash;
   int get geohashPrecision => _geohashPrecision;
   bool get isMasterPowerOn => isMasterPowerOnNotifier.value;
+  bool get isOnline => isMasterPowerOnNotifier.value;
   BitchatChannel? get activeChannel => activeChannelNotifier.value;
 
   Future<void> initialize() async {

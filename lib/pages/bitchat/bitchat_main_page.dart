@@ -33,7 +33,7 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
     super.initState();
     BitchatService.instance.initialize();
     _textController.addListener(_onTextChanged);
-    if (BitchatService.instance.isOnline) {
+    if (BitchatService.instance.isMasterPowerOn) {
       BluetoothPermissionService.requestPermissions();
     }
   }

@@ -971,6 +971,42 @@ class DatabaseService {
     await db.delete('mistake_records', where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<int> getTotalMistakeCount() async {
+    final db = await database;
+    final res = await db.rawQuery('SELECT COUNT(*) as cnt FROM mistake_records');
+    return Sqflite.firstIntValue(res) ?? 0;
+  }
+
+  Future<int> getUnresolvedMistakeCount() async {
+    final db = await database;
+    final res = await db.rawQuery("SELECT COUNT(*) as cnt FROM mistake_records WHERE status IS NULL OR (upper(status) != 'RESOLVED' AND upper(status) != 'COMPLETED' AND upper(status) != 'DONE')");
+    return Sqflite.firstIntValue(res) ?? 0;
+  }
+
+  Future<int> addMistakeRecord({
+    required String subject,
+    required String topic,
+    String? reason,
+    String severity = 'MEDIUM',
+    String? quizTitle,
+    String? questionText,
+    String? wrongAnswer,
+    String? correctAnswer,
+    String? keyTakeaway,
+  }) {
+    return insertMistakeRecord(
+      subject: subject,
+      topic: topic,
+      questionText: (questionText != null && questionText.isNotEmpty) ? questionText : topic,
+      wrongAnswer: wrongAnswer,
+      correctAnswer: correctAnswer,
+      mistakeReason: reason,
+      keyTakeaway: (keyTakeaway != null && keyTakeaway.isNotEmpty) ? keyTakeaway : (reason ?? ''),
+      quizTitle: quizTitle,
+      severity: severity,
+    );
+  }
+
   // --- Timetable & Curriculum ---
 
   Future<List<Map<String, dynamic>>> getCurriculumGroupedBySubject({String? query, String? subjectFilter}) async {
