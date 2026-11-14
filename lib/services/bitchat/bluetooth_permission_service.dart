@@ -1,34 +1,26 @@
 import 'package:flutter/services.dart';
 
 class BluetoothPermissionService {
-  static const MethodChannel _channel = MethodChannel('io.github.thelazyindian.tasks/bluetooth_permissions');
-  static const MethodChannel _fallbackChannel = MethodChannel('io.github.thelazyindian.tasks/native');
+  static const MethodChannel _btChannel = MethodChannel('io.github.thelazyindian.tasks/bluetooth_permissions');
+  static const MethodChannel _nativeChannel = MethodChannel('io.github.thelazyindian.tasks/native');
 
   static Future<bool> checkPermissions() async {
     try {
-      final bool? granted = await _channel.invokeMethod<bool>('checkBluetoothPermissions');
+      final bool? granted = await _btChannel.invokeMethod<bool>('checkBluetoothPermissions');
       if (granted != null) return granted;
-    } catch (_) {}
-
-    try {
-      final bool? granted = await _fallbackChannel.invokeMethod<bool>('checkBluetoothPermissions');
-      return granted ?? true;
+      return await _nativeChannel.invokeMethod<bool>('checkBluetoothPermissions') ?? false;
     } catch (_) {
-      return true;
+      return false;
     }
   }
 
   static Future<bool> requestPermissions() async {
     try {
-      final bool? granted = await _channel.invokeMethod<bool>('requestBluetoothPermissions');
+      final bool? granted = await _btChannel.invokeMethod<bool>('requestBluetoothPermissions');
       if (granted != null) return granted;
-    } catch (_) {}
-
-    try {
-      final bool? granted = await _fallbackChannel.invokeMethod<bool>('requestBluetoothPermissions');
-      return granted ?? true;
+      return await _nativeChannel.invokeMethod<bool>('requestBluetoothPermissions') ?? false;
     } catch (_) {
-      return true;
+      return false;
     }
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -5,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:intl/intl.dart';
+import 'keep_note_model.dart';
 
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._internal();
@@ -31,6 +33,7 @@ class DatabaseService {
       version: 1,
       onCreate: (db, version) async {
         await _createAllTables(db);
+        await _runMigrations(db);
       },
     );
 
@@ -47,6 +50,11 @@ class DatabaseService {
       await _createAllTables(db);
     } catch (e) {
       debugPrint('Database tables initialization warning: $e');
+    }
+    try {
+      await _runMigrations(db);
+    } catch (e) {
+      debugPrint('Database schema migrations warning: $e');
     }
     return db;
   }
@@ -293,12 +301,39 @@ class DatabaseService {
       ON revisit_items(lecture_id)
     ''');
 
+    // Google Keep Local Notes Table & Indices
     await db.execute('''
-      INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time, afternoon_session, evening_review)
-      VALUES (1, 1, '05:00', 1, 1, '21:30', 1, 1)
+      CREATE TABLE IF NOT EXISTS keep_notes (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL DEFAULT '',
+        color TEXT NOT NULL DEFAULT '#FFFFFF',
+        is_pinned INTEGER NOT NULL DEFAULT 0,
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        is_todo_list INTEGER NOT NULL DEFAULT 0,
+        todo_items_json TEXT NOT NULL DEFAULT '[]',
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        is_code INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
     ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_keep_notes_updated_at 
+      ON keep_notes(updated_at DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_keep_notes_pinned 
+      ON keep_notes(is_pinned DESC)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_keep_notes_archived 
+      ON keep_notes(is_archived)
+    ''');
+  }
 
-    // Defensive schema migrations for existing databases
+  Future<void> _runMigrations(Database db) async {
+    // 1. alert_settings migrations
     try {
       final aCols = await db.rawQuery('PRAGMA table_info(alert_settings)');
       final aColNames = aCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
@@ -310,6 +345,7 @@ class DatabaseService {
       }
     } catch (_) {}
 
+    // 2. custom_reminders migrations (repeat_days)
     try {
       final rCols = await db.rawQuery('PRAGMA table_info(custom_reminders)');
       final rColNames = rCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
@@ -318,6 +354,7 @@ class DatabaseService {
       }
     } catch (_) {}
 
+    // 3. mistake_records migrations
     try {
       final mCols = await db.rawQuery('PRAGMA table_info(mistake_records)');
       final colNames = mCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
@@ -335,6 +372,7 @@ class DatabaseService {
       }
     } catch (_) {}
 
+    // 4. bitchat_messages migrations
     try {
       final bCols = await db.rawQuery('PRAGMA table_info(bitchat_messages)');
       final bColNames = bCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
@@ -354,6 +392,21 @@ class DatabaseService {
         await db.execute('ALTER TABLE bitchat_messages ADD COLUMN geohash_precision INTEGER');
       }
     } catch (_) {}
+
+    // 5. Ensure default row exists in alert_settings safely
+    try {
+      await db.execute('''
+        INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time, afternoon_session, evening_review)
+        VALUES (1, 1, '05:00', 1, 1, '21:30', 1, 1)
+      ''');
+    } catch (_) {
+      try {
+        await db.execute('''
+          INSERT OR IGNORE INTO alert_settings (id, morning_brief, morning_brief_time, revisit_alerts, backlog_shield, shield_time)
+          VALUES (1, 1, '05:00', 1, 1, '21:30')
+        ''');
+      } catch (_) {}
+    }
   }
 
   // --- App Config & Hugging Face Tokens / Settings ---
@@ -1116,23 +1169,50 @@ class DatabaseService {
   }
 
   Future<int> autoCompleteExpiredReminders() async {
-    final db = await database;
-    final nowIso = DateTime.now().toIso8601String();
-    return await db.update(
-      'custom_reminders',
-      {'status': 'COMPLETED'},
-      where: 'remind_at < ? AND (status IS NULL OR status != ?) AND (repeat_days IS NULL OR trim(repeat_days) = ?)',
-      whereArgs: [nowIso, 'COMPLETED', ''],
-    );
+    try {
+      final db = await database;
+      // Defensive column presence check
+      try {
+        final rCols = await db.rawQuery('PRAGMA table_info(custom_reminders)');
+        final rColNames = rCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
+        if (!rColNames.contains('repeat_days')) {
+          await db.execute('ALTER TABLE custom_reminders ADD COLUMN repeat_days TEXT');
+        }
+      } catch (_) {}
+
+      final nowIso = DateTime.now().toIso8601String();
+      return await db.update(
+        'custom_reminders',
+        {'status': 'COMPLETED'},
+        where: 'remind_at < ? AND (status IS NULL OR status != ?) AND (repeat_days IS NULL OR trim(repeat_days) = ?)',
+        whereArgs: [nowIso, 'COMPLETED', ''],
+      );
+    } catch (e) {
+      debugPrint('autoCompleteExpiredReminders warning: $e');
+      return 0;
+    }
   }
 
   Future<List<Map<String, dynamic>>> getCustomReminders() async {
-    final db = await database;
-    return await db.query('custom_reminders', orderBy: 'remind_at ASC');
+    try {
+      final db = await database;
+      return await db.query('custom_reminders', orderBy: 'remind_at ASC');
+    } catch (e) {
+      debugPrint('getCustomReminders warning: $e');
+      return [];
+    }
   }
 
   Future<int> addCustomReminder(String text, DateTime remindAt, {String? repeatDays}) async {
     final db = await database;
+    try {
+      final rCols = await db.rawQuery('PRAGMA table_info(custom_reminders)');
+      final rColNames = rCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
+      if (!rColNames.contains('repeat_days')) {
+        await db.execute('ALTER TABLE custom_reminders ADD COLUMN repeat_days TEXT');
+      }
+    } catch (_) {}
+
     return await db.insert('custom_reminders', {
       'text': text,
       'remind_at': remindAt.toIso8601String(),
@@ -1149,6 +1229,14 @@ class DatabaseService {
     String? repeatDays,
   }) async {
     final db = await database;
+    try {
+      final rCols = await db.rawQuery('PRAGMA table_info(custom_reminders)');
+      final rColNames = rCols.map((c) => c['name']?.toString().toLowerCase()).toSet();
+      if (!rColNames.contains('repeat_days')) {
+        await db.execute('ALTER TABLE custom_reminders ADD COLUMN repeat_days TEXT');
+      }
+    } catch (_) {}
+
     await db.update(
       'custom_reminders',
       {
@@ -1391,5 +1479,107 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [messageId],
     );
+  }
+
+  // --- Google Keep Local Notes Persistence ---
+
+  Future<List<KeepNote>> getKeepNotes({
+    bool includeArchived = false,
+    String? searchQuery,
+    String? tag,
+  }) async {
+    final db = await database;
+    String sql = 'SELECT * FROM keep_notes WHERE 1=1';
+    List<dynamic> args = [];
+
+    if (!includeArchived) {
+      sql += ' AND is_archived = 0';
+    }
+
+    if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+      final term = '%${searchQuery.trim()}%';
+      sql += ' AND (lower(title) LIKE lower(?) OR lower(content) LIKE lower(?) OR lower(todo_items_json) LIKE lower(?))';
+      args.addAll([term, term, term]);
+    }
+
+    if (tag != null && tag.trim().isNotEmpty) {
+      final tagTerm = '%"${tag.trim()}"%';
+      sql += ' AND lower(tags_json) LIKE lower(?)';
+      args.add(tagTerm);
+    }
+
+    sql += ' ORDER BY is_pinned DESC, updated_at DESC';
+
+    try {
+      final rows = await db.rawQuery(sql, args);
+      return rows.map((r) => KeepNote.fromMap(r)).toList();
+    } catch (e) {
+      debugPrint('getKeepNotes error: $e');
+      return [];
+    }
+  }
+
+  Future<KeepNote?> getKeepNoteById(String id) async {
+    final db = await database;
+    try {
+      final rows = await db.query('keep_notes', where: 'id = ?', whereArgs: [id], limit: 1);
+      if (rows.isNotEmpty) return KeepNote.fromMap(rows.first);
+    } catch (e) {
+      debugPrint('getKeepNoteById error: $e');
+    }
+    return null;
+  }
+
+  Future<void> saveKeepNote(KeepNote note) async {
+    final db = await database;
+    await db.insert('keep_notes', note.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deleteKeepNote(String id) async {
+    final db = await database;
+    await db.delete('keep_notes', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> togglePinKeepNote(String id, bool isPinned) async {
+    final db = await database;
+    await db.update(
+      'keep_notes',
+      {'is_pinned': isPinned ? 1 : 0, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> toggleArchiveKeepNote(String id, bool isArchived) async {
+    final db = await database;
+    await db.update(
+      'keep_notes',
+      {'is_archived': isArchived ? 1 : 0, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<List<String>> getAllKeepTags() async {
+    final db = await database;
+    try {
+      final rows = await db.query('keep_notes', columns: ['tags_json']);
+      final Set<String> allTags = {};
+      for (final r in rows) {
+        final tagsStr = r['tags_json'] as String?;
+        if (tagsStr != null && tagsStr.isNotEmpty) {
+          try {
+            final decoded = jsonDecode(tagsStr);
+            if (decoded is List) {
+              allTags.addAll(decoded.map((e) => e.toString().trim()).where((t) => t.isNotEmpty));
+            }
+          } catch (_) {}
+        }
+      }
+      final list = allTags.toList()..sort();
+      return list;
+    } catch (_) {
+      return [];
+    }
   }
 }

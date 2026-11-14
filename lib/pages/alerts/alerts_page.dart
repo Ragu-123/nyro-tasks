@@ -38,26 +38,35 @@ class _AlertsPageState extends State<AlertsPage> {
 
   Future<void> _loadAlerts() async {
     setState(() => _isLoading = true);
-    // 1. Automatically complete expired past reminders
-    await DatabaseService.instance.autoCompleteExpiredReminders();
+    try {
+      // 1. Automatically complete expired past reminders
+      await DatabaseService.instance.autoCompleteExpiredReminders();
 
-    // 2. Load latest custom reminders
-    final reminders = await DatabaseService.instance.getCustomReminders();
+      // 2. Load latest custom reminders
+      final reminders = await DatabaseService.instance.getCustomReminders();
 
-    // 3. Load daily routine settings
-    final settings = await DatabaseService.instance.getAlertSettings();
-    final morning = (settings['morning_brief'] as int? ?? 1) == 1;
-    final afternoon = (settings['afternoon_session'] as int? ?? 1) == 1;
-    final evening = (settings['evening_review'] as int? ?? 1) == 1;
+      // 3. Load daily routine settings
+      final settings = await DatabaseService.instance.getAlertSettings();
+      final morning = (settings['morning_brief'] as int? ?? 1) == 1;
+      final afternoon = (settings['afternoon_session'] as int? ?? 1) == 1;
+      final evening = (settings['evening_review'] as int? ?? 1) == 1;
 
-    if (mounted) {
-      setState(() {
-        _reminders = reminders;
-        _morningEnabled = morning;
-        _afternoonEnabled = afternoon;
-        _eveningEnabled = evening;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _reminders = reminders;
+          _morningEnabled = morning;
+          _afternoonEnabled = afternoon;
+          _eveningEnabled = evening;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading alerts: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -996,9 +1005,23 @@ class __AlarmEditorSheetState extends State<_AlarmEditorSheet> {
     final String? newRepeatDays = sortedDays.isNotEmpty ? sortedDays.join(',') : null;
 
     setState(() => _isSaving = true);
-    await widget.onSave(newText, newDateTime, newRepeatDays);
-    if (mounted) {
-      Navigator.pop(context);
+    try {
+      await widget.onSave(newText, newDateTime, newRepeatDays);
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      debugPrint('Error saving alarm: $e');
+      if (mounted) {
+        setState(() => _isSaving = false);
+        TopBanner.show(
+          context,
+          title: 'Error Saving Alarm',
+          message: e.toString(),
+          icon: Icons.error_outline_rounded,
+          color: googleRed,
+        );
+      }
     }
   }
 

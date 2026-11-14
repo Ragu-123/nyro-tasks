@@ -89,17 +89,12 @@ class NostrRelayService {
 
     _activeSubscriptions['geo_global'] = {
       'kinds': [20000, 20001, 1],
-      '#g': ['global'],
+      '#t': ['global', 'bitchat', 'mesh', 'gate2027'],
       'limit': 50,
     };
-    _activeSubscriptions['geo_gate2027'] = {
+    _activeSubscriptions['geo_global_g'] = {
       'kinds': [20000, 20001, 1],
-      '#g': ['gate2027'],
-      'limit': 50,
-    };
-    _activeSubscriptions['geo_mesh'] = {
-      'kinds': [20000, 20001, 1],
-      '#g': ['mesh'],
+      '#g': ['global', 'mesh', 'gate2027'],
       'limit': 50,
     };
 
@@ -366,14 +361,22 @@ class NostrRelayService {
     final subId = 'geo_$geohash';
     final filter = {
       'kinds': [20000, 20001, 1],
+      '#t': [geohash, 'global', 'bitchat'],
+      'limit': 50,
+    };
+    final filterG = {
+      'kinds': [20000, 20001, 1],
       '#g': [geohash],
       'limit': 50,
     };
 
     _activeSubscriptions[subId] = filter;
+    _activeSubscriptions['${subId}_g'] = filterG;
 
     final reqMessage = jsonEncode(['REQ', subId, filter]);
+    final reqMessageG = jsonEncode(['REQ', '${subId}_g', filterG]);
     _broadcastToConnectedSockets(reqMessage);
+    _broadcastToConnectedSockets(reqMessageG);
 
     _sendGeohashPresenceHeartbeat();
   }
@@ -427,6 +430,9 @@ class NostrRelayService {
     final senderNick = nickname ?? _nickname;
     final tags = [
       ['g', geohash],
+      ['t', geohash],
+      ['t', 'bitchat'],
+      ['t', 'global'],
       ['n', senderNick],
     ];
 
@@ -568,8 +574,10 @@ class NostrRelayService {
 
       for (final tag in event.tags) {
         if (tag.isNotEmpty) {
-          if (tag[0] == 'g' && tag.length > 1) {
-            geohash = tag[1];
+          if ((tag[0] == 'g' || tag[0] == 't') && tag.length > 1) {
+            if (geohash == null || tag[0] == 'g') {
+              geohash = tag[1];
+            }
           } else if (tag[0] == 'n' && tag.length > 1) {
             senderNick = tag[1];
           }

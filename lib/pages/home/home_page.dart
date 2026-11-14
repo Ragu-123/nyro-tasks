@@ -20,6 +20,8 @@ import 'package:tasks/widgets/add_mistake_modal_sheet.dart';
 import 'package:tasks/widgets/top_banner_notification.dart';
 import 'package:tasks/pages/bitchat/bitchat_main_page.dart';
 import 'package:tasks/services/bitchat/bitchat_service.dart';
+import 'package:tasks/pages/keep/keep_page.dart';
+import 'package:tasks/pages/keep/note_editor_sheet.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -769,6 +771,9 @@ class _HomePageState extends State<HomePage> {
                                 initialSubject: _selectedSubject,
                                 availableSubjects: _availableSubjects,
                               );
+                            } else if (val == 'Keep') {
+                              Navigator.pop(context);
+                              _openNoteEditorSheet();
                             } else {
                               setSheetState(() => selectedType = val);
                             }
@@ -821,6 +826,16 @@ class _HomePageState extends State<HomePage> {
                                   Icon(Icons.edit_note_rounded, size: 16, color: googleRed),
                                   SizedBox(width: 8),
                                   Text('Mistake Record', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'Keep',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.lightbulb_outline_rounded, size: 16, color: Color(0xFFF29900)),
+                                  SizedBox(width: 8),
+                                  Text('Keep Note', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                                 ],
                               ),
                             ),
@@ -1071,6 +1086,25 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _openKeepPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const KeepPage()),
+    );
+  }
+
+  void _openNoteEditorSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => NoteEditorSheet(
+        onSave: (_) => _loadGlobalData(),
+        onDelete: () => _loadGlobalData(),
+      ),
+    );
+  }
+
   void _showSubjectFilterSheet() {
     showModalBottomSheet(
       context: context,
@@ -1178,6 +1212,16 @@ class _HomePageState extends State<HomePage> {
                     onTap: () {
                       Navigator.pop(context);
                       _showNotificationsHistorySheet();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFFF29900), size: 22),
+                    title: const Text('Keep', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: googleTextPrimary)),
+                    subtitle: const Text('Notes, checklists, ideas & tags', style: TextStyle(fontSize: 11, color: googleTextSecondary)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _openKeepPage();
                     },
                   ),
                   ValueListenableBuilder<bool>(

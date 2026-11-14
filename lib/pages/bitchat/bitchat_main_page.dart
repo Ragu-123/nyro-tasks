@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../../services/bitchat/bitchat_models.dart';
 import '../../services/bitchat/bitchat_service.dart';
+import '../../services/bitchat/bluetooth_permission_service.dart';
 import '../../utils/theme.dart';
 import '../../widgets/top_banner_notification.dart';
 import 'add_channel_dialog.dart';
@@ -32,6 +33,9 @@ class _BitchatMainPageState extends State<BitchatMainPage> {
     super.initState();
     BitchatService.instance.initialize();
     _textController.addListener(_onTextChanged);
+    if (BitchatService.instance.isOnline) {
+      BluetoothPermissionService.requestPermissions();
+    }
   }
 
   @override
